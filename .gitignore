@@ -1,0 +1,10 @@
+# 本地交接文档与个人数据，不入库
+AGENT.md
+*.pos
+
+# 构建产物（通过 GitHub Releases 分发）
+*.exe
+*.pfx
+
+# 签名产物备份
+*.bak
