@@ -1,7 +1,7 @@
 # HDR 开关 / HDR Toggle
 
-**Win11 桌面悬浮小窗，一键开关主显示器 HDR。**
-A tiny always-on-top widget that toggles your primary display's HDR with a single click.
+**Win11 桌面悬浮侧边栏：一键开关 HDR + DeepSeek 余额 + ZCode 订阅用量。**
+A tiny always-on-top sidebar: HDR toggle for your primary display, DeepSeek balance, and GLM Coding Plan quota rings.
 
 原生 WPF · 单文件零依赖 · 免管理员 · 自动边缘吸附半隐藏 · 附带标准安装向导
 
@@ -9,11 +9,20 @@ A tiny always-on-top widget that toggles your primary display's HDR with a singl
 
 ## 功能
 
-- 🟢 **桌面悬浮圆钮**：绿色 = HDR 开，灰色 = 关；点击切换，3 秒轮询自动同步外部状态
+- 🟢 **HDR 开关圆钮**：绿色 = HDR 开，灰色 = 关；点击切换，3 秒轮询自动同步外部状态
+- 🐋 **DeepSeek 余额**：显示 API 账户余额（含赠送额度），点击打开用量页；key 在 `hdr-sidebar.ini` 配置
+- 🐺 **ZCode / GLM Coding Plan 用量**：五小时额度圈 + 本周额度圈，自动读取本机 ZCode 桌面端登录凭证（零配置），点击打开套餐页
 - 🧲 **边缘吸附半隐藏**：拖近屏幕边缘自动吸附并只露一条小边；悬停弹出，移开自动缩回；半隐藏时首击只唤醒不误触
 - 📦 **标准安装向导**：可选安装路径、桌面/开始菜单快捷方式、开机自启、控制面板「应用和功能」卸载
-- ⌨️ **命令行**：`-state` / `-toggle` / `-on` / `-off` / `-quit`，退出码规整，方便脚本与快捷键调用
-- 🪶 **轻量**：主程序约 20 KB，用 Windows 自带编译器即可构建，运行时零依赖
+- ⌨️ **命令行**：`-state` / `-toggle` / `-on` / `-off` / `-quit` / `-debugdata`，退出码规整，方便脚本与快捷键调用
+- 🪶 **轻量**：主程序约 118 KB（含内嵌图标），用 Windows 自带编译器即可构建，运行时零依赖
+
+## ZCode 用量是怎么拿到的
+
+小窗读取 ZCode 桌面端存在本机的登录凭证（`~/.zcode/v2/credentials.json` 的 OAuth token，
+AES-GCM 加密，直接在本地解密，不联网传输密钥），用它调用
+`/api/monitor/usage/quota/limit` 拿到五小时/本周额度。**不需要额外配置**——
+在 ZCode 里重新登录后，小窗下次刷新会自动使用新凭证。
 
 ## 安装
 
@@ -30,11 +39,23 @@ A tiny always-on-top widget that toggles your primary display's HDR with a singl
 ## 命令行用法
 
 ```
-hdr-toggle.exe -state     打印 HDR 状态（退出码 0=ON 1=OFF 2=错误）
-hdr-toggle.exe -toggle    切换一次（退出码=切换后的状态）
-hdr-toggle.exe -on|-off   强制开/关
-hdr-toggle.exe -quit      关闭运行中的小窗
+hdr-toggle.exe -state        打印 HDR 状态（退出码 0=ON 1=OFF 2=错误）
+hdr-toggle.exe -toggle       切换一次（退出码=切换后的状态）
+hdr-toggle.exe -on|-off      强制开/关
+hdr-toggle.exe -quit         关闭运行中的小窗
+hdr-toggle.exe -debugdata    测试 DeepSeek/ZCode 两个数据源（打印成败与数值）
 ```
+
+## 数据配置（DeepSeek）
+
+安装目录下的 `hdr-sidebar.ini`（也可从小窗右键菜单「数据配置」打开）：
+
+```ini
+deepseek_key=sk-xxxxxxxx     # platform.deepseek.com 创建的 API key
+#refresh_minutes=5           # 可选：刷新间隔（分钟）
+```
+
+ZCode 用量无需任何配置（自动读本机 ZCode 凭证）。
 
 ## 兼容性与一个驱动怪癖的解法
 
@@ -49,15 +70,16 @@ HDR 关闭时白电平恒为 1000（80 nit 基准），开启时随「SDR 内容
 ## 目录结构
 
 ```
-hdr-toggle.cs      主程序（CLI + WPF 小窗，全部逻辑）
+hdr-toggle.cs      主程序（CLI + WPF 侧边栏 + 数据源 + 凭证解密，全部逻辑）
 setup.cs           WinForms 安装向导（内嵌主程序）
 app.manifest       主程序清单（asInvoker / supportedOS / dpiAware）
 setup.manifest     安装器清单
 build.ps1          一键构建（-SetupOnly 只重打安装器，签名流程用）
 sign.ps1           Authenticode 签名（配合代码签名证书）
+icon-*.png         侧边栏图标（内嵌资源）
 发布说明.md         发行流程与防误报清单
-script-edition/    早期 PowerShell 脚本版（功能等价，保留给喜欢脚本的用户）
-tools/             诊断小工具
+script-edition/    早期 PowerShell 脚本版（仅 HDR 开关，保留给喜欢脚本的用户）
+tools/             诊断与制作小工具
 ```
 
 ## License
