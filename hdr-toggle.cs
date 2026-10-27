@@ -1223,6 +1223,7 @@ namespace HDRToggle
         private DispatcherTimer _animTimer;
         private int _animIdx;
         private bool _dfFrozen, _zcFrozen;   // 数据异常时定格，不瞎动
+        private int _lastZcMood = -1;        // 额度分档迟滞用，防阈值附近反复横跳
         private static readonly int[] Seq = BuildSeq();
 
         private static int[] BuildSeq()
@@ -1883,8 +1884,19 @@ namespace HDRToggle
             if (_zc != null && _zc.Ok)
             {
                 double worst = Math.Min(_zc.Five.RemainFrac < 0 ? 1 : _zc.Five.RemainFrac, _zc.Week.RemainFrac < 0 ? 1 : _zc.Week.RemainFrac);
-                int mood = DataFeed.MoodFromRemain(worst, low, mid);
-                _zcPlayer.SetSheet(mood == 0 ? "normal" : (mood == 1 ? "worry" : "daze"));
+                int cand = DataFeed.MoodFromRemain(worst, low, mid);
+                int m = _lastZcMood;
+                if (cand != m)
+                {
+                    bool allow = true;
+                    if (m == 1 && cand == 0) allow = worst > mid + 0.05;   // 退档要高出 5 个点才回去
+                    if (m == 0 && cand == 1) allow = worst <= mid;
+                    if (m == 2 && cand == 1) allow = worst > low + 0.05;
+                    if (m == 1 && cand == 2) allow = worst <= low;
+                    if (allow) m = cand;
+                }
+                _lastZcMood = m;
+                _zcPlayer.SetSheet(m == 0 ? "normal" : (m == 1 ? "worry" : "daze"));
                 _zcFrozen = false;
             }
             else _zcFrozen = true;

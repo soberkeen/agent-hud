@@ -54,7 +54,9 @@ def bbox_of(rgba):
 def process(mp4, out_name):
     r = imageio.get_reader(os.path.join(D, mp4))
     n = r.count_frames()
-    idxs = [round(i * (n - 1) / (FRAMES - 1)) for i in range(FRAMES)]
+    # 跳过 AI 视频开头的「表情渐变进入」段：从 35%~95% 区间取帧，表情全程成形
+    lo, hi = int((n - 1) * 0.35), int((n - 1) * 0.95)
+    idxs = [round(lo + i * (hi - lo) / (FRAMES - 1)) for i in range(FRAMES)]
     frames = []
     for i in idxs:
         f = r.get_data(i)
