@@ -31,6 +31,7 @@ $resZc   = '-res:{0},Icon.Zcode.png'   -f $iconZc
     -r:"$wpf\PresentationFramework.dll" -r:"$wpf\PresentationCore.dll" `
     -r:"$wpf\WindowsBase.dll" -r:"$framework\System.Xaml.dll" `
     -r:"$framework\System.Web.Extensions.dll" `
+    -r:"$framework\System.Windows.Forms.dll" -r:"$framework\System.Drawing.dll" `
     $resDfy $resZc $src
     if ($LASTEXITCODE -ne 0) { throw "hdr-toggle.exe 编译失败 (exit $LASTEXITCODE)" }
 }

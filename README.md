@@ -9,9 +9,11 @@ A tiny always-on-top sidebar: HDR toggle for your primary display, DeepSeek bala
 
 ## 功能
 
-- 🟢 **HDR 开关圆钮**：绿色 = HDR 开，灰色 = 关；点击切换，3 秒轮询自动同步外部状态
-- 🐋 **DeepSeek 余额**：显示 API 账户余额（含赠送额度），点击打开用量页；key 在 `hdr-sidebar.ini` 配置
-- 🐺 **ZCode / GLM Coding Plan 用量**：五小时额度圈 + 本周额度圈，自动读取本机 ZCode 桌面端登录凭证（零配置），点击打开套餐页
+- 🟢 **HDR 开关圆钮**：绿色发光 = HDR 开，灰色 = 关；点击切换，3 秒轮询自动同步外部状态
+- 🐋 **DeepSeek 余额**：悬停图标弹出余额详情（含赠送额度）；key 在设置页配置
+- 🐺 **ZCode / GLM Coding Plan 用量**：悬停图标弹出五小时 + 本周双额度圈（已用/重置时间），自动读取本机 ZCode 桌面端登录凭证（零配置）
+- 🖱️ **悬停弹出、点击固定**：详情面板跟随悬停出现、离开自动消失；点一下图标常驻，再点收回；图标角标常显额度健康状态（绿/黄/红）
+- ⚙️ **托盘 + 设置页**：托盘左键显示/隐藏、右键进设置；设置含开机自启、额度阈值、刷新间隔、API Key 测试连接
 - 🧲 **边缘吸附半隐藏**：拖近屏幕边缘自动吸附并只露一条小边；悬停弹出，移开自动缩回；半隐藏时首击只唤醒不误触
 - 📦 **标准安装向导**：可选安装路径、桌面/开始菜单快捷方式、开机自启、控制面板「应用和功能」卸载
 - ⌨️ **命令行**：`-state` / `-toggle` / `-on` / `-off` / `-quit` / `-debugdata`，退出码规整，方便脚本与快捷键调用
@@ -42,8 +44,9 @@ AES-GCM 加密，直接在本地解密，不联网传输密钥），用它调用
 hdr-toggle.exe -state        打印 HDR 状态（退出码 0=ON 1=OFF 2=错误）
 hdr-toggle.exe -toggle       切换一次（退出码=切换后的状态）
 hdr-toggle.exe -on|-off      强制开/关
-hdr-toggle.exe -quit         关闭运行中的小窗
+hdr-toggle.exe -quit         退出（托盘+侧边栏）
 hdr-toggle.exe -debugdata    测试 DeepSeek/ZCode 两个数据源（打印成败与数值）
+hdr-toggle.exe -settings     启动并打开设置页
 ```
 
 ## 数据配置（DeepSeek）
