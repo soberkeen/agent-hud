@@ -27,12 +27,17 @@ $iconDfy = Join-Path $PSScriptRoot 'icon-dafeiyu.png'
 $iconZc  = Join-Path $PSScriptRoot 'icon-zcode.png'
 $resDfy  = '-res:{0},Icon.Dafeiyu.png' -f $iconDfy
 $resZc   = '-res:{0},Icon.Zcode.png'   -f $iconZc
+# 动画精灵图 anim-df-normal.png -> anim.df.normal.png
+$resAnim = @()
+Get-ChildItem $PSScriptRoot -Filter 'anim-*.png' | ForEach-Object {
+    $resAnim += ('-res:{0},anim.{1}.png' -f $_.FullName, (($_.BaseName -replace '^anim-','') -replace '-','.'))
+}
 & $csc -nologo -target:winexe -out:$appExe -win32icon:$icon -win32manifest:$manifest `
     -r:"$wpf\PresentationFramework.dll" -r:"$wpf\PresentationCore.dll" `
     -r:"$wpf\WindowsBase.dll" -r:"$framework\System.Xaml.dll" `
     -r:"$framework\System.Web.Extensions.dll" `
     -r:"$framework\System.Windows.Forms.dll" -r:"$framework\System.Drawing.dll" `
-    $resDfy $resZc $src
+    $resDfy $resZc $resAnim $src
     if ($LASTEXITCODE -ne 0) { throw "hdr-toggle.exe 编译失败 (exit $LASTEXITCODE)" }
 }
 
