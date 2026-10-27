@@ -1201,7 +1201,7 @@ namespace HDRToggle
         private const double Sliver = 12;   // 半隐藏时保留可见的宽度
         private const double SnapPx = 28;   // 距边缘多少像素内判定为吸附
         private const double DsDrawerH = 40;   // DeepSeek 抽屉展开高（纯余额一行）
-        private const double ZcDrawerH = 58;   // ZCode 抽屉展开高（38 圈+标签）
+        private const double ZcDrawerH = 54;   // ZCode 抽屉展开高（34 圈+标签）
         private const double ClosedH = 254;    // 抽屉全收起的窗口高度
         private double _windowH = ClosedH;     // 当前窗口高度基准值（动画起点/终点计算用）
 
@@ -1375,13 +1375,13 @@ namespace HDRToggle
             _zcWeekDot.ToolTip = "本周额度";
             StackPanel zcDots = new StackPanel
             {
-                Orientation = Orientation.Horizontal,
+                Orientation = Orientation.Vertical,
                 HorizontalAlignment = HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Bottom,
                 Margin = new Thickness(0, 0, 7, 3),
             };
             zcDots.Children.Add(_zcFiveDot);
-            zcDots.Children.Add(new Border { Width = 3 });
+            zcDots.Children.Add(new Border { Height = 2 });
             zcDots.Children.Add(_zcWeekDot);
             _zcRow.Children.Add(_zcPlayer.Visual);
             _zcRow.Children.Add(zcDots);
@@ -1397,10 +1397,10 @@ namespace HDRToggle
                 Margin = new Thickness(0, 2, 0, 0),
             };
             StackPanel rings = new StackPanel { Orientation = Orientation.Horizontal };
-            _zcFiveRing = Ui.MakeRing(38, 4, 10.5);
-            _zcWeekRing = Ui.MakeRing(38, 4, 10.5);
+            _zcFiveRing = Ui.MakeRing(34, 3.5, 10);
+            _zcWeekRing = Ui.MakeRing(34, 3.5, 10);
             rings.Children.Add(RingMini(_zcFiveRing, "5时"));
-            rings.Children.Add(new Border { Width = 6 });
+            rings.Children.Add(new Border { Width = 5 });
             rings.Children.Add(RingMini(_zcWeekRing, "本周"));
             _zcDrawerContent.Children.Add(rings);
             _zcDrawer = new Grid { Height = 0, ClipToBounds = true, Background = Brushes.Transparent };
@@ -1549,9 +1549,6 @@ namespace HDRToggle
                 _animIdx = (_animIdx + 1) % Seq.Length;
                 if (!_dfFrozen) _dfPlayer.SetFrame(Seq[_animIdx]);
                 if (!_zcFrozen) _zcPlayer.SetFrame(Seq[_animIdx]);
-                // 紧张档轻微发抖（±1.3px，冻结时保持静止），表情含蓄也有"慌"的体感
-                _dfPlayer.ShiftX(!_dfFrozen && _dfMoodNow == 1 ? (_animIdx % 2 == 0 ? 1.3 : -1.3) : 0);
-                _zcPlayer.ShiftX(!_zcFrozen && _zcMoodNow == 1 ? (_animIdx % 2 == 0 ? 1.3 : -1.3) : 0);
             };
             _animTimer.Start();
             _pollTimer.Start();
@@ -1756,7 +1753,7 @@ namespace HDRToggle
 
         private StackPanel RingMini(Ui.RingParts p, string caption)
         {
-            StackPanel cell = new StackPanel { Width = 42 };
+            StackPanel cell = new StackPanel { Width = 38 };
             p.Ring.HorizontalAlignment = HorizontalAlignment.Center;
             cell.Children.Add(p.Ring);
             TextBlock cap = new TextBlock
