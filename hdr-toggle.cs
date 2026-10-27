@@ -720,6 +720,8 @@ namespace HDRToggle
         private const int Frames = 12;
         private const int FrameW = 96, FrameH = 96;
 
+        private readonly TranslateTransform _shift = new TranslateTransform();
+
         public FramePlayer(string prefix, double size, string fallbackRes)
         {
             _prefix = prefix;
@@ -727,11 +729,15 @@ namespace HDRToggle
             _img.Width = size;
             _img.Height = size;
             _img.IsHitTestVisible = false;
+            _img.RenderTransform = _shift;
             RenderOptions.SetBitmapScalingMode(_img, BitmapScalingMode.HighQuality);
             SetSheet("normal");
         }
 
         public Image Visual { get { return _img; } }
+
+        // 紧张档发抖：小幅水平位移
+        public void ShiftX(double x) { _shift.X = x; }
 
         public void SetSheet(string key)
         {
@@ -1217,7 +1223,7 @@ namespace HDRToggle
         private readonly DispatcherTimer _panelHideTimer;
 
         // 图标行 + 抽屉
-        private Ellipse _dsDot, _zcDot;
+        private Ellipse _dsDot, _zcFiveDot, _zcWeekDot;
         private Grid _dsRow, _zcRow;
         private FramePlayer _dfPlayer, _zcPlayer;
         private DispatcherTimer _animTimer;
@@ -1331,7 +1337,10 @@ namespace HDRToggle
             // ---- DeepSeek 行 + 抽屉（角色下方滑出纯余额） ----
             _dsRow = IconRow("ds");
             _dfPlayer = new FramePlayer("anim.df.", 74, "Icon.Dafeiyu.png");
-            _dsDot = StatusDot();
+            _dsDot = StatusDot(10);
+            _dsDot.Margin = new Thickness(0, 0, 8, 4);
+            _dsDot.HorizontalAlignment = HorizontalAlignment.Right;
+            _dsDot.VerticalAlignment = VerticalAlignment.Bottom;
             _dsRow.Children.Add(_dfPlayer.Visual);
             _dsRow.Children.Add(_dsDot);
             _dsRow.ToolTip = "DeepSeek 余额（悬停展开，点击固定/收起）";
@@ -1360,9 +1369,22 @@ namespace HDRToggle
             // ---- ZCode 行 + 抽屉（角色下方滑出双圈） ----
             _zcRow = IconRow("zc");
             _zcPlayer = new FramePlayer("anim.zc.", 74, "Icon.Zcode.png");
-            _zcDot = StatusDot();
+            _zcFiveDot = StatusDot(9);
+            _zcWeekDot = StatusDot(9);
+            _zcFiveDot.ToolTip = "5 小时额度";
+            _zcWeekDot.ToolTip = "本周额度";
+            StackPanel zcDots = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(0, 0, 7, 3),
+            };
+            zcDots.Children.Add(_zcFiveDot);
+            zcDots.Children.Add(new Border { Width = 3 });
+            zcDots.Children.Add(_zcWeekDot);
             _zcRow.Children.Add(_zcPlayer.Visual);
-            _zcRow.Children.Add(_zcDot);
+            _zcRow.Children.Add(zcDots);
             _zcRow.ToolTip = "ZCode 订阅用量（悬停展开，点击固定/收起）";
             stack.Children.Add(_zcRow);
 
@@ -1527,6 +1549,9 @@ namespace HDRToggle
                 _animIdx = (_animIdx + 1) % Seq.Length;
                 if (!_dfFrozen) _dfPlayer.SetFrame(Seq[_animIdx]);
                 if (!_zcFrozen) _zcPlayer.SetFrame(Seq[_animIdx]);
+                // 紧张档轻微发抖（±1.3px，冻结时保持静止），表情含蓄也有"慌"的体感
+                _dfPlayer.ShiftX(!_dfFrozen && _dfMoodNow == 1 ? (_animIdx % 2 == 0 ? 1.3 : -1.3) : 0);
+                _zcPlayer.ShiftX(!_zcFrozen && _zcMoodNow == 1 ? (_animIdx % 2 == 0 ? 1.3 : -1.3) : 0);
             };
             _animTimer.Start();
             _pollTimer.Start();
@@ -1747,18 +1772,15 @@ namespace HDRToggle
             return cell;
         }
 
-        private Ellipse StatusDot()
+        private Ellipse StatusDot(double size)
         {
             Ellipse e = new Ellipse
             {
-                Width = 10, Height = 10,
+                Width = size, Height = size,
                 Fill = Ui.Brush(0xFF, 0x99, 0x99, 0x99),
                 Stroke = Ui.Brush(0xCC, 0x20, 0x20, 0x20),
                 StrokeThickness = 2,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Bottom,
-                Margin = new Thickness(0, 0, 9, 4),
-                IsHitTestVisible = false,
+                IsHitTestVisible = true,   // 让 Tooltip 可用
             };
             return e;
         }
@@ -1845,6 +1867,17 @@ namespace HDRToggle
             Ui.SetRing(p, li.RemainFrac, c);
         }
 
+        private int _dfMoodNow = -1, _zcMoodNow = -1;
+
+        private Color MoodColor(double frac, double low, double mid)
+        {
+            if (frac < 0) return Ui.Col(0xFF, 0x99, 0x99, 0x99);
+            int mood = DataFeed.MoodFromRemain(frac, low, mid);
+            if (mood == 0) return Ui.Col(0x7C, 0xFC, 0x9E);
+            if (mood == 1) return Ui.Col(0xFF, 0xD2, 0x4A);
+            return Ui.Col(0xFF, 0x6B, 0x6B);
+        }
+
         private void SetDot(Ellipse dot, Color c)
         {
             SolidColorBrush b = new SolidColorBrush(c);
@@ -1878,9 +1911,10 @@ namespace HDRToggle
                     System.Globalization.CultureInfo.InvariantCulture, out bal);
                 int mood = !num ? 0 : (bal <= 0 ? 2 : (bal < 20 ? 1 : 0));
                 _dfPlayer.SetSheet(mood == 0 ? "normal" : (mood == 1 ? "worry" : "daze"));
+                _dfMoodNow = mood;
                 _dfFrozen = false;
             }
-            else _dfFrozen = true;
+            else { _dfFrozen = true; _dfMoodNow = -1; }
             if (_zc != null && _zc.Ok)
             {
                 double worst = Math.Min(_zc.Five.RemainFrac < 0 ? 1 : _zc.Five.RemainFrac, _zc.Week.RemainFrac < 0 ? 1 : _zc.Week.RemainFrac);
@@ -1896,22 +1930,26 @@ namespace HDRToggle
                     if (allow) m = cand;
                 }
                 _lastZcMood = m;
+                _zcMoodNow = m;
                 _zcPlayer.SetSheet(m == 0 ? "normal" : (m == 1 ? "worry" : "daze"));
                 _zcFrozen = false;
             }
             else _zcFrozen = true;
 
-            // 角标状态点
+            // 角标状态点：DS 单点；ZC 双点（5时/本周各自独立分档）
             if (_ds != null && _ds.Ok) SetDot(_dsDot, Ui.Col(0x7C, 0xFC, 0x9E));
             else if (_ds != null && _ds.Error != null && _ds.Error.Contains("未配置")) SetDot(_dsDot, Ui.Col(0x88, 0x99, 0x99, 0x99));
             else SetDot(_dsDot, Ui.Col(0xFF, 0x6B, 0x6B));
             if (_zc != null && _zc.Ok)
             {
-                double worst = Math.Min(_zc.Five.RemainFrac < 0 ? 1 : _zc.Five.RemainFrac, _zc.Week.RemainFrac < 0 ? 1 : _zc.Week.RemainFrac);
-                int mood = DataFeed.MoodFromRemain(worst, low, mid);
-                SetDot(_zcDot, mood == 0 ? Ui.Col(0x7C, 0xFC, 0x9E) : (mood == 1 ? Ui.Col(0xFF, 0xD2, 0x4A) : Ui.Col(0xFF, 0x6B, 0x6B)));
+                SetDot(_zcFiveDot, MoodColor(_zc.Five.RemainFrac, low, mid));
+                SetDot(_zcWeekDot, MoodColor(_zc.Week.RemainFrac, low, mid));
             }
-            else SetDot(_zcDot, Ui.Col(0xFF, 0x6B, 0x6B));
+            else
+            {
+                SetDot(_zcFiveDot, Ui.Col(0xFF, 0x6B, 0x6B));
+                SetDot(_zcWeekDot, Ui.Col(0xFF, 0x6B, 0x6B));
+            }
         }
 
         private void UpdateVisual(bool force)
