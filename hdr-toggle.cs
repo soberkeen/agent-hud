@@ -1183,7 +1183,7 @@ namespace HDRToggle
         public Widget()
         {
             Title = "HDR Toggle";
-            Width = 104; Height = 342;   // 固定为最大高度（抽屉开合不再改变窗口大小），透明区域鼠标点穿
+            Width = 104; Height = 358;   // 固定为最大高度（抽屉开合不再改变窗口大小），透明区域鼠标点穿
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;   // 禁用系统贴边分屏放大（Aero Snap）
             AllowsTransparency = true;
@@ -1209,16 +1209,16 @@ namespace HDRToggle
             Content = _root;
 
             // ---- HDR 圆钮（美化 + 双击确认防误触） ----
-            Grid hdrArea = new Grid { Height = 80, Background = Brushes.Transparent, Cursor = Cursors.Hand };
+            Grid hdrArea = new Grid { Height = 76, Background = Brushes.Transparent, Cursor = Cursors.Hand };
             _hdrScale = new ScaleTransform(1, 1);
             _hdrFill = new SolidColorBrush(Color.FromArgb(0xFF, 0x35, 0x35, 0x35));
             _hdrGlow = new DropShadowEffect { BlurRadius = 16, ShadowDepth = 0, Opacity = 0.25 };
             _hdrBtn = new Border
             {
-                Width = 72, Height = 72,
+                Width = 68, Height = 68,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
-                CornerRadius = new CornerRadius(20),
+                CornerRadius = new CornerRadius(19),
                 Background = _hdrFill,
                 BorderBrush = Ui.Brush(0x55, 0xFF, 0xFF, 0xFF),
                 BorderThickness = new Thickness(1),
@@ -1230,7 +1230,7 @@ namespace HDRToggle
             _label = new TextBlock
             {
                 Text = "HDR",
-                FontSize = 17,
+                FontSize = 16,
                 FontWeight = FontWeights.Bold,
                 Foreground = Ui.Brush(0xFF, 0xEE, 0xEE, 0xEE),
                 HorizontalAlignment = HorizontalAlignment.Center,
@@ -1248,7 +1248,7 @@ namespace HDRToggle
 
             // ---- DeepSeek 行 + 抽屉（角色下方滑出纯余额） ----
             _dsRow = IconRow("ds");
-            Image dsIcon = Ui.IconImage("Icon.Dafeiyu.png", 64);
+            Image dsIcon = Ui.IconImage("Icon.Dafeiyu.png", 74);
             dsIcon.VerticalAlignment = VerticalAlignment.Center;
             dsIcon.HorizontalAlignment = HorizontalAlignment.Center;
             dsIcon.IsHitTestVisible = false;
@@ -1280,7 +1280,7 @@ namespace HDRToggle
 
             // ---- ZCode 行 + 抽屉（角色下方滑出双圈） ----
             _zcRow = IconRow("zc");
-            Image zcIcon = Ui.IconImage("Icon.Zcode.png", 64);
+            Image zcIcon = Ui.IconImage("Icon.Zcode.png", 74);
             zcIcon.VerticalAlignment = VerticalAlignment.Center;
             zcIcon.HorizontalAlignment = HorizontalAlignment.Center;
             zcIcon.IsHitTestVisible = false;
@@ -1472,7 +1472,7 @@ namespace HDRToggle
         {
             Grid g = new Grid
             {
-                Height = 68,
+                Height = 76,
                 Background = Brushes.Transparent,   // 保证空隙也能命中
                 Cursor = Cursors.Hand,
             };
