@@ -1141,7 +1141,9 @@ namespace HDRToggle
         private const double Sliver = 12;   // 半隐藏时保留可见的宽度
         private const double SnapPx = 28;   // 距边缘多少像素内判定为吸附
         private const double DsDrawerH = 40;   // DeepSeek 抽屉展开高（纯余额一行）
-        private const double ZcDrawerH = 52;   // ZCode 抽屉展开高（双圈并排）
+        private const double ZcDrawerH = 58;   // ZCode 抽屉展开高（38 圈+标签）
+        private const double ClosedH = 254;    // 抽屉全收起的窗口高度
+        private double _windowH = ClosedH;     // 当前窗口高度基准值（动画起点/终点计算用）
 
         private static readonly string PosFile = Path.Combine(SettingsData.ExeDir, "hdr-toggle.pos");
 
@@ -1194,7 +1196,7 @@ namespace HDRToggle
         public Widget(EventWaitHandle showEvent)
         {
             Title = "HDR Toggle";
-            Width = 104; Height = 358;   // 固定为最大高度（抽屉开合不再改变窗口大小），透明区域鼠标点穿
+            Width = 104; Height = ClosedH;   // 高度跟随抽屉开合伸缩，不留透明空底
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;   // 禁用系统贴边分屏放大（Aero Snap）
             AllowsTransparency = true;
@@ -1310,10 +1312,10 @@ namespace HDRToggle
                 Margin = new Thickness(0, 2, 0, 0),
             };
             StackPanel rings = new StackPanel { Orientation = Orientation.Horizontal };
-            _zcFiveRing = Ui.MakeRing(40, 4, 11);
-            _zcWeekRing = Ui.MakeRing(40, 4, 11);
+            _zcFiveRing = Ui.MakeRing(38, 4, 10.5);
+            _zcWeekRing = Ui.MakeRing(38, 4, 10.5);
             rings.Children.Add(RingMini(_zcFiveRing, "5时"));
-            rings.Children.Add(new Border { Width = 8 });
+            rings.Children.Add(new Border { Width = 6 });
             rings.Children.Add(RingMini(_zcWeekRing, "本周"));
             _zcDrawerContent.Children.Add(rings);
             _zcDrawer = new Grid { Height = 0, ClipToBounds = true, Background = Brushes.Transparent };
@@ -1619,6 +1621,22 @@ namespace HDRToggle
             }
             _openDrawer = open ? sec : (_openDrawer == sec ? null : _openDrawer);
             if (!open && _pinnedDrawer == sec) _pinnedDrawer = null;
+
+            // 窗口高度跟随抽屉伸缩，底部不留透明空底
+            double newH = ClosedH + (open ? target : 0);
+            Duration wdur = new Duration(TimeSpan.FromMilliseconds(180));
+            CubicEase wease = new CubicEase(); wease.EasingMode = EasingMode.EaseOut;
+            DoubleAnimation aw = new DoubleAnimation(newH, wdur);
+            aw.EasingFunction = wease;
+            BeginAnimation(Window.HeightProperty, aw);
+            if (_dock == "bottom" && Math.Abs(newH - _windowH) > 0.5)
+            {
+                // 贴底时窗口向下长会压到任务栏：Top 同步上移
+                DoubleAnimation at = new DoubleAnimation(Top - (newH - _windowH), wdur);
+                at.EasingFunction = wease;
+                BeginAnimation(Window.TopProperty, at);
+            }
+            _windowH = newH;
         }
 
         private void CloseDrawersAndUnpin()
@@ -1641,7 +1659,7 @@ namespace HDRToggle
 
         private StackPanel RingMini(Ui.RingParts p, string caption)
         {
-            StackPanel cell = new StackPanel { Width = 44 };
+            StackPanel cell = new StackPanel { Width = 42 };
             p.Ring.HorizontalAlignment = HorizontalAlignment.Center;
             cell.Children.Add(p.Ring);
             TextBlock cap = new TextBlock
