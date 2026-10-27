@@ -1183,7 +1183,7 @@ namespace HDRToggle
         public Widget()
         {
             Title = "HDR Toggle";
-            Width = 80; Height = 272;   // 固定为最大高度（抽屉开合不再改变窗口大小），透明区域鼠标点穿
+            Width = 80; Height = 284;   // 固定为最大高度（抽屉开合不再改变窗口大小），透明区域鼠标点穿
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;   // 禁用系统贴边分屏放大（Aero Snap）
             AllowsTransparency = true;
@@ -1248,7 +1248,7 @@ namespace HDRToggle
 
             // ---- DeepSeek 行 + 抽屉（角色下方滑出纯余额） ----
             _dsRow = IconRow("ds");
-            Image dsIcon = Ui.IconImage("Icon.Dafeiyu.png", 40);
+            Image dsIcon = Ui.IconImage("Icon.Dafeiyu.png", 48);
             dsIcon.VerticalAlignment = VerticalAlignment.Center;
             dsIcon.HorizontalAlignment = HorizontalAlignment.Center;
             dsIcon.IsHitTestVisible = false;
@@ -1280,7 +1280,7 @@ namespace HDRToggle
 
             // ---- ZCode 行 + 抽屉（角色下方滑出双圈） ----
             _zcRow = IconRow("zc");
-            Image zcIcon = Ui.IconImage("Icon.Zcode.png", 40);
+            Image zcIcon = Ui.IconImage("Icon.Zcode.png", 48);
             zcIcon.VerticalAlignment = VerticalAlignment.Center;
             zcIcon.HorizontalAlignment = HorizontalAlignment.Center;
             zcIcon.IsHitTestVisible = false;
@@ -1472,7 +1472,7 @@ namespace HDRToggle
         {
             Grid g = new Grid
             {
-                Height = 50,
+                Height = 56,
                 Background = Brushes.Transparent,   // 保证空隙也能命中
                 Cursor = Cursors.Hand,
             };
@@ -1607,7 +1607,7 @@ namespace HDRToggle
                 StrokeThickness = 2,
                 HorizontalAlignment = HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Bottom,
-                Margin = new Thickness(0, 0, 12, 4),
+                Margin = new Thickness(0, 0, 11, 3),
                 IsHitTestVisible = false,
             };
             return e;
