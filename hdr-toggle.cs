@@ -1183,7 +1183,7 @@ namespace HDRToggle
         public Widget()
         {
             Title = "HDR Toggle";
-            Width = 80; Height = 268;   // 固定为最大高度（抽屉开合不再改变窗口大小），透明区域鼠标点穿
+            Width = 80; Height = 272;   // 固定为最大高度（抽屉开合不再改变窗口大小），透明区域鼠标点穿
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;   // 禁用系统贴边分屏放大（Aero Snap）
             AllowsTransparency = true;
@@ -1248,7 +1248,7 @@ namespace HDRToggle
 
             // ---- DeepSeek 行 + 抽屉（角色下方滑出纯余额） ----
             _dsRow = IconRow("ds");
-            Image dsIcon = Ui.IconImage("Icon.Dafeiyu.png", 36);
+            Image dsIcon = Ui.IconImage("Icon.Dafeiyu.png", 40);
             dsIcon.VerticalAlignment = VerticalAlignment.Center;
             dsIcon.HorizontalAlignment = HorizontalAlignment.Center;
             dsIcon.IsHitTestVisible = false;
@@ -1280,7 +1280,7 @@ namespace HDRToggle
 
             // ---- ZCode 行 + 抽屉（角色下方滑出双圈） ----
             _zcRow = IconRow("zc");
-            Image zcIcon = Ui.IconImage("Icon.Zcode.png", 36);
+            Image zcIcon = Ui.IconImage("Icon.Zcode.png", 40);
             zcIcon.VerticalAlignment = VerticalAlignment.Center;
             zcIcon.HorizontalAlignment = HorizontalAlignment.Center;
             zcIcon.IsHitTestVisible = false;
@@ -1302,7 +1302,7 @@ namespace HDRToggle
             _zcFiveRing = Ui.MakeRing(32, 3.5, 9.5);
             _zcWeekRing = Ui.MakeRing(32, 3.5, 9.5);
             rings.Children.Add(RingMini(_zcFiveRing, "5时"));
-            rings.Children.Add(new Border { Width = 6 });
+            rings.Children.Add(new Border { Width = 4 });
             rings.Children.Add(RingMini(_zcWeekRing, "本周"));
             _zcDrawerContent.Children.Add(rings);
             _zcDrawer = new Grid { Height = 0, ClipToBounds = true, Background = Brushes.Transparent };
@@ -1472,7 +1472,7 @@ namespace HDRToggle
         {
             Grid g = new Grid
             {
-                Height = 48,
+                Height = 50,
                 Background = Brushes.Transparent,   // 保证空隙也能命中
                 Cursor = Cursors.Hand,
             };
@@ -1581,7 +1581,7 @@ namespace HDRToggle
 
         private StackPanel RingMini(Ui.RingParts p, string caption)
         {
-            StackPanel cell = new StackPanel { Width = 40 };
+            StackPanel cell = new StackPanel { Width = 34 };
             p.Ring.HorizontalAlignment = HorizontalAlignment.Center;
             cell.Children.Add(p.Ring);
             TextBlock cap = new TextBlock
