@@ -1,4 +1,4 @@
-// hdr-toggle.cs — HDR 开关 + 数据侧边栏（原生 WPF 版 v1.3：托盘 + 设置页 + 悬停详情面板）
+// hdr-toggle.cs — HDR 开关 + 数据侧边栏（原生 WPF 版 v1.4：原位抽屉展开 + HDR 双击确认）
 // 用系统自带 csc.exe (.NET Framework 4.x, 仅支持 C#5 语法) 编译，见 build.ps1；Win10/11 零依赖运行
 // 用法:
 //   hdr-toggle.exe              启动侧边栏（单实例，带托盘图标）
@@ -7,8 +7,9 @@
 //   hdr-toggle.exe -on / -off   强制开/关（退出码 0=成功 2=失败）
 //   hdr-toggle.exe -quit        退出（托盘+侧边栏）（0=已关闭 1=未找到）
 //   hdr-toggle.exe -settings    启动并打开设置页（调试/高级用法）
-//   hdr-toggle.exe -popup:ds|zc 启动并固定打开详情面板（布局调试用）
-// 交互: 图标行悬停弹出详情面板（平滑滑入），离开延迟消失，点击固定、再点收回；
+//   hdr-toggle.exe -popup:ds|zc 启动并固定展开对应抽屉（布局调试用）
+// 交互: 图标悬停时在角色下方原位滑出额度抽屉（DeepSeek=纯余额，ZCode=双圈套数字），
+//       离开延迟消失，点击固定、再点收回；HDR 钮双击确认（单击进入「确认?」琥珀态，3 秒内再点才切换，超时自动还原）防误触；
 //       HDR 圆钮点击切换 HDR；窗口可拖动，拖近屏幕边缘吸附半隐藏；托盘左键显示/隐藏，
 //       右键菜单：设置/数据配置/退出；侧边栏右键菜单同
 // 数据: ZCode 用量 = {zcode_base}/api/monitor/usage/quota/limit，认证用本机 ZCode 凭证
@@ -46,8 +47,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("一键开关主显示器 HDR + DeepSeek 余额 + ZCode 用量侧边栏")]
 [assembly: AssemblyCompany("HDR Toggle Project")]
 [assembly: AssemblyCopyright("Copyright (C) 2026 HDR Toggle Project")]
-[assembly: AssemblyVersion("1.3.0.0")]
-[assembly: AssemblyFileVersion("1.3.0.0")]
+[assembly: AssemblyVersion("1.4.0.0")]
+[assembly: AssemblyFileVersion("1.4.0.0")]
 
 namespace HDRToggle
 {
@@ -819,322 +820,9 @@ namespace HDRToggle
             w.Show();
             if (openSettings) w.OpenSettings();
             if (popupDebug != null) w.DebugPopup(popupDebug);
+            w.Start();          // v1.3 起漏掉过这行：轮询/数据刷新定时器全靠它
             Dispatcher.Run();   // 无 Application 对象，手动泵消息；Widget.Closed 里 BeginInvokeShutdown
             return 0;
-        }
-    }
-
-    // ---------- 悬停详情面板（Popup：滑入淡入 / 离开延迟消失 / 点击固定） ----------
-    public class DetailPopup
-    {
-        private readonly Widget _host;
-        private readonly Popup _popup;
-        private readonly Border _frame;
-        private readonly TranslateTransform _slide;
-        private string _section;        // "ds" | "zc" | null
-        private bool _pinned;
-        private bool _hiding;
-
-        // 面板元素（Show 时重建，Refresh 时填充）
-        private TextBlock _dsBalance, _dsSub, _dsState, _dsErrMsg;
-        private StackPanel _dsErrorBox;
-        private Ui.RingParts _zcFive, _zcWeek;
-        private TextBlock _zcFiveLine, _zcWeekLine, _zcBadge, _zcErrMsg;
-        private StackPanel _zcErrorBox;
-
-        public DetailPopup(Widget host)
-        {
-            _host = host;
-            _popup = new Popup();
-            _popup.AllowsTransparency = true;
-            _popup.StaysOpen = true;          // 不抢焦点、不被点外面关掉；显隐完全由我们控制
-            _popup.PlacementTarget = host;
-            _popup.Placement = PlacementMode.Absolute;
-            _slide = new TranslateTransform();
-            _frame = new Border();
-            _frame.CornerRadius = new CornerRadius(12);
-            _frame.Background = Ui.Brush(0xF2, 0x1D, 0x1D, 0x1D);
-            _frame.BorderBrush = Ui.Brush(0x33, 0xFF, 0xFF, 0xFF);
-            _frame.BorderThickness = new Thickness(1);
-            _frame.Width = 252;
-            _frame.Padding = new Thickness(14);
-            _frame.RenderTransform = _slide;
-            _frame.Effect = new DropShadowEffect { BlurRadius = 18, ShadowDepth = 4, Opacity = 0.45 };
-            _frame.MouseEnter += delegate { _host.CancelPanelHide(); };
-            _frame.MouseLeave += delegate { _host.SchedulePanelHide(); };
-            _popup.Child = _frame;
-        }
-
-        public bool Visible { get { return _popup.IsOpen; } }
-        public bool Pinned { get { return _pinned; } }
-        public string Section { get { return _section; } }
-
-        private DockPanel Header(string resName, string title, bool withClose, bool withBadge)
-        {
-            DockPanel dp = new DockPanel { LastChildFill = true };
-            if (withClose)
-            {
-                Button x = new Button();
-                x.Content = "✕";
-                x.Width = 22; x.Height = 22;
-                x.Focusable = false;
-                x.Background = Brushes.Transparent;
-                x.Foreground = Ui.Brush(0x99, 0xFF, 0xFF, 0xFF);
-                x.BorderThickness = new Thickness(0);
-                x.Cursor = Cursors.Hand;
-                x.VerticalAlignment = VerticalAlignment.Top;
-                x.Click += delegate { _host.UnpinPanel(); };
-                DockPanel.SetDock(x, Dock.Right);
-                dp.Children.Add(x);
-            }
-            StackPanel h = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            Image ic = Ui.IconImage(resName, 20);
-            ic.VerticalAlignment = VerticalAlignment.Center;
-            h.Children.Add(ic);
-            TextBlock t = new TextBlock
-            {
-                Text = title,
-                FontSize = 13,
-                FontWeight = FontWeights.Bold,
-                Foreground = Ui.Brush(0xFF, 0xEE, 0xEE, 0xEE),
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(8, 0, 0, 0),
-            };
-            h.Children.Add(t);
-            if (withBadge)
-            {
-                _zcBadge = new TextBlock { Text = "", FontSize = 10.5, Foreground = Ui.Brush(0xFF, 0x7C, 0xFC, 0x9E) };
-                Border badge = new Border();
-                badge.CornerRadius = new CornerRadius(6);
-                badge.Background = Ui.Brush(0x30, 0x7C, 0xFC, 0x9E);
-                badge.Padding = new Thickness(7, 1, 7, 2);
-                badge.Margin = new Thickness(8, 0, 0, 0);
-                badge.VerticalAlignment = VerticalAlignment.Center;
-                badge.Child = _zcBadge;
-                h.Children.Add(badge);
-            }
-            dp.Children.Add(h);
-            return dp;
-        }
-
-        private StackPanel Body()
-        {
-            StackPanel sp = new StackPanel();
-
-            sp.Children.Add(Header("Icon.Dafeiyu.png", "DeepSeek 余额", true, false));
-
-            _dsBalance = new TextBlock
-            {
-                FontSize = 26,
-                FontWeight = FontWeights.Bold,
-                Foreground = Ui.Brush(0xFF, 0xFF, 0xFF, 0xFF),
-                Margin = new Thickness(0, 8, 0, 0),
-            };
-            sp.Children.Add(_dsBalance);
-            _dsSub = new TextBlock
-            {
-                FontSize = 12,
-                Foreground = Ui.Brush(0xAA, 0xFF, 0xFF, 0xFF),
-                Margin = new Thickness(0, 5, 0, 0),
-            };
-            sp.Children.Add(_dsSub);
-            _dsState = new TextBlock
-            {
-                FontSize = 12,
-                Foreground = Ui.Brush(0xFF, 0x7C, 0xFC, 0x9E),
-                Margin = new Thickness(0, 2, 0, 0),
-            };
-            sp.Children.Add(_dsState);
-            _dsErrorBox = ErrorBox(true, out _dsErrMsg);
-            sp.Children.Add(_dsErrorBox);
-
-            sp.Children.Add(new Border
-            {
-                Height = 1,
-                Background = Ui.Brush(0x22, 0xFF, 0xFF, 0xFF),
-                Margin = new Thickness(0, 12, 0, 12),
-            });
-
-            sp.Children.Add(Header("Icon.Zcode.png", "ZCode 订阅用量", false, true));
-
-            StackPanel rings = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 10, 0, 0) };
-            _zcFive = Ui.MakeRing(52, 4.5, 12);
-            _zcWeek = Ui.MakeRing(52, 4.5, 12);
-            rings.Children.Add(RingCell(_zcFive, "五小时"));
-            rings.Children.Add(new Border { Width = 18 });
-            rings.Children.Add(RingCell(_zcWeek, "本周"));
-            sp.Children.Add(rings);
-            _zcFiveLine = new TextBlock { FontSize = 12, Foreground = Ui.Brush(0xCC, 0xFF, 0xFF, 0xFF), Margin = new Thickness(0, 8, 0, 0), TextAlignment = TextAlignment.Center };
-            sp.Children.Add(_zcFiveLine);
-            _zcWeekLine = new TextBlock { FontSize = 12, Foreground = Ui.Brush(0xCC, 0xFF, 0xFF, 0xFF), Margin = new Thickness(0, 2, 0, 0), TextAlignment = TextAlignment.Center };
-            sp.Children.Add(_zcWeekLine);
-            _zcErrorBox = ErrorBox(false, out _zcErrMsg);
-            sp.Children.Add(_zcErrorBox);
-
-            TextBlock foot = new TextBlock
-            {
-                FontSize = 10.5,
-                Foreground = Ui.Brush(0x55, 0xFF, 0xFF, 0xFF),
-                Margin = new Thickness(0, 12, 0, 0),
-                Text = "点击侧边栏图标固定 / 收起  ·  悬停预览",
-            };
-            sp.Children.Add(foot);
-            return sp;
-        }
-
-        private StackPanel RingCell(Ui.RingParts p, string caption)
-        {
-            StackPanel cell = new StackPanel { Width = 78 };
-            p.Ring.HorizontalAlignment = HorizontalAlignment.Center;
-            cell.Children.Add(p.Ring);
-            TextBlock cap = new TextBlock
-            {
-                Text = caption,
-                FontSize = 10.5,
-                Foreground = Ui.Brush(0x99, 0xFF, 0xFF, 0xFF),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(0, 4, 0, 0),
-            };
-            cell.Children.Add(cap);
-            return cell;
-        }
-
-        private StackPanel ErrorBox(bool withSettingsButton, out TextBlock msg)
-        {
-            StackPanel box = new StackPanel { Visibility = Visibility.Collapsed, Margin = new Thickness(0, 10, 0, 0) };
-            msg = new TextBlock { FontSize = 11.5, Foreground = Ui.Brush(0xFF, 0xFF, 0xB0, 0xB0), TextWrapping = TextWrapping.Wrap };
-            box.Children.Add(msg);
-            if (withSettingsButton)
-            {
-                Button open = new Button
-                {
-                    Content = "打开设置",
-                    FontSize = 12,
-                    Cursor = Cursors.Hand,
-                    HorizontalAlignment = HorizontalAlignment.Left,
-                    Margin = new Thickness(0, 8, 0, 0),
-                    Padding = new Thickness(10, 3, 10, 4),
-                };
-                open.Click += delegate { _host.OpenSettings(); };
-                box.Children.Add(open);
-            }
-            return box;
-        }
-
-        // 数据回填（面板开着时每次刷新都会调用）
-        public void Refresh(DsInfo ds, ZcInfo zc, Dictionary<string, string> cfg)
-        {
-            if (ds != null && ds.Ok)
-            {
-                string sym = DataFeed.CurrencySymbol(ds.Currency);
-                _dsBalance.Text = sym + " " + ds.Balance;
-                _dsSub.Text = "赠送额度 " + sym + ds.Granted;
-                _dsState.Text = "状态：可用 ✓";
-                _dsState.Foreground = Ui.Brush(0xFF, 0x7C, 0xFC, 0x9E);
-                _dsErrorBox.Visibility = Visibility.Collapsed;
-            }
-            else
-            {
-                _dsBalance.Text = "--";
-                _dsSub.Text = "";
-                _dsState.Text = "";
-                _dsErrMsg.Text = (ds != null ? ds.Error : "") + " —— 在设置里填入 DeepSeek API Key";
-                _dsErrorBox.Visibility = Visibility.Visible;
-            }
-
-            double low = SettingsData.Num(cfg, "warn_low", 20) / 100.0;
-            double mid = SettingsData.Num(cfg, "warn_mid", 50) / 100.0;
-            if (zc != null && zc.Ok)
-            {
-                FillRing(_zcFive, zc.Five, low, mid);
-                FillRing(_zcWeek, zc.Week, low, mid);
-                _zcFiveLine.Text = "已用 " + zc.Five.Used.ToString("0") + " / " + zc.Five.Total.ToString("0") + ResetSuffix(zc.Five);
-                _zcWeekLine.Text = "已用 " + zc.Week.Used.ToString("0") + " / " + zc.Week.Total.ToString("0") + ResetSuffix(zc.Week);
-                _zcBadge.Text = zc.Level.Length > 0 ? zc.Level : "coding plan";
-                _zcErrMsg.Text = "";
-                _zcErrorBox.Visibility = Visibility.Collapsed;
-            }
-            else
-            {
-                Ui.SetRing(_zcFive, -1, Colors.Black);
-                Ui.SetRing(_zcWeek, -1, Colors.Black);
-                _zcFiveLine.Text = "";
-                _zcWeekLine.Text = "";
-                _zcBadge.Text = "?";
-                _zcBadge.Foreground = Ui.Brush(0xFF, 0xFF, 0xB0, 0xB0);
-                _zcErrMsg.Text = (zc != null ? zc.Error : "") + " —— 需在本机 ZCode 桌面端保持登录";
-                _zcErrorBox.Visibility = Visibility.Visible;
-            }
-        }
-
-        private void FillRing(Ui.RingParts p, LimitInfo li, double low, double mid)
-        {
-            if (li.RemainFrac < 0) { Ui.SetRing(p, -1, Colors.Black); return; }
-            int mood = DataFeed.MoodFromRemain(li.RemainFrac, low, mid);
-            Color c = mood == 0 ? Ui.Col(0x7C, 0xFC, 0x9E) : (mood == 1 ? Ui.Col(0xFF, 0xD2, 0x4A) : Ui.Col(0xFF, 0x6B, 0x6B));
-            Ui.SetRing(p, li.RemainFrac, c);
-        }
-
-        private string ResetSuffix(LimitInfo li)
-        {
-            return li.ResetAt != DateTime.MinValue ? " · " + li.ResetAt.ToString("MM-dd HH:mm") + " 重置" : "";
-        }
-
-        // 弹出（toRight 已由位置计算体现）；animate=false 用于瞬间收起
-        public void Show(string section, bool pinned, bool animate)
-        {
-            _section = section;
-            _pinned = pinned;
-            _hiding = false;
-            _frame.Child = Body();
-            // 弹出方向：贴左缘时向右弹，贴右缘时向左弹，悬浮时选空间大的一侧
-            Rect wa = SystemParameters.WorkArea;
-            double wx = _host.Left + _host.Width / 2;
-            bool toRight = _host.Dock == "left" || (_host.Dock != "right" && wx < wa.Left + wa.Width / 2);
-            double py = _host.Top + (section == "ds" ? 84 : 148);   // 与对应图标行大致对齐
-            double estH = 330;
-            if (py + estH > wa.Bottom) py = wa.Bottom - estH;
-            if (py < wa.Top) py = wa.Top;
-            double px = toRight ? _host.Left + _host.Width + 10 : _host.Left - _frame.Width - 10;
-            _popup.HorizontalOffset = px;
-            _popup.VerticalOffset = py;
-            Refresh(_host.LatestDs, _host.LatestZc, _host.CurrentConfig);
-            _popup.IsOpen = true;
-            // 滑入淡入（只动 opacity/transform，GPU 友好）
-            double from = toRight ? -14 : 14;
-            _slide.BeginAnimation(TranslateTransform.XProperty, null);
-            _slide.X = from;
-            _frame.Opacity = 0;
-            Duration dur = new Duration(TimeSpan.FromMilliseconds(180));
-            CubicEase ease = new CubicEase(); ease.EasingMode = EasingMode.EaseOut;
-            DoubleAnimation a1 = new DoubleAnimation(from, 0, dur);
-            a1.EasingFunction = ease;
-            DoubleAnimation a2 = new DoubleAnimation(0, 1, dur);
-            a2.EasingFunction = ease;
-            _slide.BeginAnimation(TranslateTransform.XProperty, a1);
-            _frame.BeginAnimation(UIElement.OpacityProperty, a2);
-        }
-
-        public void Hide(bool animate)
-        {
-            if (!_popup.IsOpen) return;
-            if (!animate) { _popup.IsOpen = false; _section = null; _pinned = false; return; }
-            if (_hiding) return;
-            _hiding = true;
-            Duration dur = new Duration(TimeSpan.FromMilliseconds(130));
-            DoubleAnimation a1 = new DoubleAnimation(0, 10, dur);
-            DoubleAnimation a2 = new DoubleAnimation(1, 0, dur);
-            a2.Completed += delegate
-            {
-                _popup.IsOpen = false;
-                _hiding = false;
-                _section = null;
-                _pinned = false;
-            };
-            _slide.BeginAnimation(TranslateTransform.XProperty, null);
-            _frame.BeginAnimation(UIElement.OpacityProperty, null);
-            _slide.BeginAnimation(TranslateTransform.XProperty, a1);
-            _frame.BeginAnimation(UIElement.OpacityProperty, a2);
         }
     }
 
@@ -1436,20 +1124,24 @@ namespace HDRToggle
         }
     }
 
-    // ---------- 侧边栏 ----------
+    // ---------- 侧边栏（v1.4：原位抽屉展开 + HDR 双击确认） ----------
     public class Widget : Window
     {
         private const double Sliver = 12;   // 半隐藏时保留可见的宽度
         private const double SnapPx = 28;   // 距边缘多少像素内判定为吸附
+        private const double DsDrawerH = 34;   // DeepSeek 抽屉展开高（纯余额一行）
+        private const double ZcDrawerH = 52;   // ZCode 抽屉展开高（双圈并排）
 
         private static readonly string PosFile = Path.Combine(SettingsData.ExeDir, "hdr-toggle.pos");
 
-        // HDR 圆钮（美化：渐变圆角方块 + 状态发光 + 缩放反馈）
+        // HDR 圆钮（渐变圆角方块 + 状态发光 + 缩放反馈 + 双击确认）
         private readonly Border _hdrBtn;
         private readonly TextBlock _label;
         private readonly SolidColorBrush _hdrFill;        // 非冻结，做颜色渐变动画
         private readonly DropShadowEffect _hdrGlow;
         private readonly ScaleTransform _hdrScale;
+        private bool _hdrArmed;                            // 已单击待确认
+        private readonly DispatcherTimer _armTimer;
 
         private readonly Grid _root;
         private readonly DispatcherTimer _pollTimer;
@@ -1457,21 +1149,26 @@ namespace HDRToggle
         private readonly DispatcherTimer _dataTimer;
         private readonly DispatcherTimer _panelHideTimer;
 
-        // 图标行
-        private Ellipse _dsDot, _zcDot;                   // 角标状态点
+        // 图标行 + 抽屉
+        private Ellipse _dsDot, _zcDot;
         private Grid _dsRow, _zcRow;
+        private Grid _dsDrawer, _zcDrawer;
+        private StackPanel _dsDrawerContent, _zcDrawerContent;
+        private TranslateTransform _dsSlide, _zcSlide;
+        private TextBlock _dsBalanceText;
+        private Ui.RingParts _zcFiveRing, _zcWeekRing;
 
-        private DetailPopup _popup;
-        private SettingsWindow _settings;
         private WF.NotifyIcon _tray;
+        private SettingsWindow _settings;
 
         private Dictionary<string, string> _cfg;
         private DsInfo _ds;
         private ZcInfo _zc;
         private DateTime _lastFetch = DateTime.MinValue;
 
-        private string _pinnedSection;                    // "ds"|"zc" 固定的面板；null 无
-        private string _hoverSection;
+        private string _pinnedDrawer;    // null | "ds" | "zc"（单击固定）
+        private string _hoverDrawer;
+        private string _openDrawer;
 
         private string _dock = "";       // "" | left | right | top | bottom
         private bool _tucked;
@@ -1486,7 +1183,7 @@ namespace HDRToggle
         public Widget()
         {
             Title = "HDR Toggle";
-            Width = 80; Height = 190;
+            Width = 80; Height = 268;   // 固定为最大高度（抽屉开合不再改变窗口大小），透明区域鼠标点穿
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;   // 禁用系统贴边分屏放大（Aero Snap）
             AllowsTransparency = true;
@@ -1503,6 +1200,7 @@ namespace HDRToggle
                 Background = Ui.Brush(0xE6, 0x20, 0x20, 0x20),
                 BorderBrush = Ui.Brush(0x33, 0xFF, 0xFF, 0xFF),
                 BorderThickness = new Thickness(1),
+                VerticalAlignment = VerticalAlignment.Top,   // 抽屉收起时面板贴顶，底部保持透明
             };
             StackPanel stack = new StackPanel();
             panel.Child = stack;
@@ -1510,16 +1208,11 @@ namespace HDRToggle
             _root.Children.Add(panel);
             Content = _root;
 
-            // ---- HDR 圆钮（美化版） ----
-            Grid hdrArea = new Grid
-            {
-                Height = 64,
-                Background = Brushes.Transparent,
-                Cursor = Cursors.Hand,
-            };
+            // ---- HDR 圆钮（美化 + 双击确认防误触） ----
+            Grid hdrArea = new Grid { Height = 64, Background = Brushes.Transparent, Cursor = Cursors.Hand };
             _hdrScale = new ScaleTransform(1, 1);
-            _hdrFill = new SolidColorBrush(Color.FromArgb(0xFF, 0x17, 0x7B, 0x4D));   // 初值会被 UpdateVisual 覆盖
-            _hdrGlow = new DropShadowEffect { BlurRadius = 16, ShadowDepth = 0, Opacity = 0.0 };
+            _hdrFill = new SolidColorBrush(Color.FromArgb(0xFF, 0x35, 0x35, 0x35));
+            _hdrGlow = new DropShadowEffect { BlurRadius = 16, ShadowDepth = 0, Opacity = 0.25 };
             _hdrBtn = new Border
             {
                 Width = 56, Height = 56,
@@ -1548,26 +1241,13 @@ namespace HDRToggle
             hdrArea.Children.Add(_label);
             hdrArea.MouseEnter += delegate { AnimateScale(1.07); };
             hdrArea.MouseLeave += delegate { AnimateScale(1.0); };
-            hdrArea.MouseLeftButtonDown += delegate
-            {
-                StopPosAnim();
-                _downAt = DateTime.Now;
-                double preX = Left, preY = Top;
-                try { DragMove(); } catch { }
-                double moved = Math.Abs(Left - preX) + Math.Abs(Top - preY);
-                if (moved < 4 && (DateTime.Now - _downAt).TotalMilliseconds < 1500)
-                {
-                    if (_tucked) { SetDockState(_dock, false, true); return; }   // 半隐藏时第一击只唤醒
-                    ToggleHdr();
-                }
-                else UpdateDock(true);
-            };
+            hdrArea.MouseLeftButtonDown += delegate { OnHdrDown(); };
             stack.Children.Add(hdrArea);
 
             stack.Children.Add(Sep());
 
-            // ---- DeepSeek 图标行 ----
-            _dsRow = IconRow(delegate { TogglePin("ds"); }, delegate { HoverRow("ds"); }, delegate { LeaveRow("ds"); });
+            // ---- DeepSeek 行 + 抽屉（角色下方滑出纯余额） ----
+            _dsRow = IconRow("ds");
             Image dsIcon = Ui.IconImage("Icon.Dafeiyu.png", 36);
             dsIcon.VerticalAlignment = VerticalAlignment.Center;
             dsIcon.HorizontalAlignment = HorizontalAlignment.Center;
@@ -1575,13 +1255,31 @@ namespace HDRToggle
             _dsDot = StatusDot();
             _dsRow.Children.Add(dsIcon);
             _dsRow.Children.Add(_dsDot);
-            _dsRow.ToolTip = "DeepSeek 余额";
+            _dsRow.ToolTip = "DeepSeek 余额（悬停展开，点击固定/收起）";
             stack.Children.Add(_dsRow);
+
+            _dsSlide = new TranslateTransform();
+            _dsDrawerContent = new StackPanel { RenderTransform = _dsSlide, Opacity = 0 };
+            _dsBalanceText = new TextBlock
+            {
+                FontSize = 15,
+                FontWeight = FontWeights.Bold,
+                Foreground = Ui.Brush(0xFF, 0xFF, 0xFF, 0xFF),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 4, 0, 0),
+                IsHitTestVisible = false,
+            };
+            _dsDrawerContent.Children.Add(_dsBalanceText);
+            _dsDrawer = new Grid { Height = 0, ClipToBounds = true, Background = Brushes.Transparent };
+            _dsDrawer.Children.Add(_dsDrawerContent);
+            _dsDrawer.MouseEnter += delegate { CancelPanelHide(); };
+            _dsDrawer.MouseLeave += delegate { SchedulePanelHide(); };
+            stack.Children.Add(_dsDrawer);
 
             stack.Children.Add(Sep());
 
-            // ---- ZCode 图标行 ----
-            _zcRow = IconRow(delegate { TogglePin("zc"); }, delegate { HoverRow("zc"); }, delegate { LeaveRow("zc"); });
+            // ---- ZCode 行 + 抽屉（角色下方滑出双圈） ----
+            _zcRow = IconRow("zc");
             Image zcIcon = Ui.IconImage("Icon.Zcode.png", 36);
             zcIcon.VerticalAlignment = VerticalAlignment.Center;
             zcIcon.HorizontalAlignment = HorizontalAlignment.Center;
@@ -1589,20 +1287,42 @@ namespace HDRToggle
             _zcDot = StatusDot();
             _zcRow.Children.Add(zcIcon);
             _zcRow.Children.Add(_zcDot);
-            _zcRow.ToolTip = "ZCode 订阅用量";
+            _zcRow.ToolTip = "ZCode 订阅用量（悬停展开，点击固定/收起）";
             stack.Children.Add(_zcRow);
 
-            // ---- 底部留白 ----
+            _zcSlide = new TranslateTransform();
+            _zcDrawerContent = new StackPanel
+            {
+                RenderTransform = _zcSlide,
+                Opacity = 0,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 2, 0, 0),
+            };
+            StackPanel rings = new StackPanel { Orientation = Orientation.Horizontal };
+            _zcFiveRing = Ui.MakeRing(32, 3.5, 9.5);
+            _zcWeekRing = Ui.MakeRing(32, 3.5, 9.5);
+            rings.Children.Add(RingMini(_zcFiveRing, "5时"));
+            rings.Children.Add(new Border { Width = 6 });
+            rings.Children.Add(RingMini(_zcWeekRing, "本周"));
+            _zcDrawerContent.Children.Add(rings);
+            _zcDrawer = new Grid { Height = 0, ClipToBounds = true, Background = Brushes.Transparent };
+            _zcDrawer.Children.Add(_zcDrawerContent);
+            _zcDrawer.MouseEnter += delegate { CancelPanelHide(); };
+            _zcDrawer.MouseLeave += delegate { SchedulePanelHide(); };
+            stack.Children.Add(_zcDrawer);
+
             Border pad = new Border { Height = 6, IsHitTestVisible = false };
             stack.Children.Add(pad);
 
-            _popup = new DetailPopup(this);
-            _panelHideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(260) };
+            _panelHideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
             _panelHideTimer.Tick += delegate
             {
                 _panelHideTimer.Stop();
-                if (_pinnedSection == null && _hoverSection == null) _popup.Hide(true);
+                if (_pinnedDrawer == null && _hoverDrawer == null && _openDrawer != null) AnimateDrawer(_openDrawer, false);
             };
+
+            _armTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+            _armTimer.Tick += delegate { DisarmHdr(); };   // 超时未确认自动还原，误触零代价
 
             ContextMenu menu = new ContextMenu();
             MenuItem miSettings = new MenuItem { Header = "设置…" };
@@ -1628,7 +1348,7 @@ namespace HDRToggle
             catch { }
 
             _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
-            _pollTimer.Tick += delegate { UpdateVisual(); };
+            _pollTimer.Tick += delegate { UpdateVisual(false); };
 
             _tuckTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
             _tuckTimer.Tick += delegate
@@ -1666,6 +1386,7 @@ namespace HDRToggle
             {
                 _pollTimer.Stop();
                 _dataTimer.Stop();
+                _armTimer.Stop();
                 if (_tray != null) { _tray.Visible = false; _tray.Dispose(); }
                 try { File.WriteAllText(PosFile, ((int)Left).ToString() + "," + ((int)Top).ToString()); } catch { }
                 Dispatcher.BeginInvokeShutdown(DispatcherPriority.Background);
@@ -1676,7 +1397,7 @@ namespace HDRToggle
 
         public void Start()
         {
-            UpdateVisual();
+            UpdateVisual(false);
             _pollTimer.Start();
             UpdateDock(false);   // 上次关闭时若贴边，启动即恢复半隐藏
             RefreshData();
@@ -1694,12 +1415,11 @@ namespace HDRToggle
                 _tray.Visible = SettingsData.Flag(_cfg, "show_tray");
 
                 WF.ContextMenuStrip menu = new WF.ContextMenuStrip();
-                menu.Items.Add("显示 / 隐藏侧边栏", null, delegate { ToggleVisible(); });
-                ((WF.ToolStripMenuItem)menu.Items[0]).Font = new SD.Font("Microsoft YaHei UI", 9f);
-                menu.Items.Add("设置…", null, delegate { OpenSettings(); });
-                menu.Items.Add("数据配置", null, delegate { OpenIni(); });
+                menu.Items.Add("显示 / 隐藏侧边栏", null, (EventHandler)delegate { ToggleVisible(); });
+                menu.Items.Add("设置…", null, (EventHandler)delegate { OpenSettings(); });
+                menu.Items.Add("数据配置", null, (EventHandler)delegate { OpenIni(); });
                 menu.Items.Add(new WF.ToolStripSeparator());
-                menu.Items.Add("退出", null, delegate { Close(); });
+                menu.Items.Add("退出", null, (EventHandler)delegate { Close(); });
                 _tray.ContextMenuStrip = menu;
                 _tray.MouseUp += delegate(object sender, WF.MouseEventArgs e)
                 {
@@ -1711,7 +1431,7 @@ namespace HDRToggle
 
         private void ToggleVisible()
         {
-            if (Visibility == Visibility.Visible) { HidePopupAndPin(); Visibility = Visibility.Hidden; }
+            if (Visibility == Visibility.Visible) { CloseDrawersAndUnpin(); Visibility = Visibility.Hidden; }
             else { Visibility = Visibility.Visible; UpdateDock(false); }
         }
 
@@ -1740,7 +1460,7 @@ namespace HDRToggle
             RefreshData();
         }
 
-        // ---------- 详情面板（悬停/固定） ----------
+        // ---------- 抽屉（角色下方原位滑出） ----------
         public void CancelPanelHide() { _panelHideTimer.Stop(); }
         public void SchedulePanelHide()
         {
@@ -1748,69 +1468,7 @@ namespace HDRToggle
             _panelHideTimer.Start();
         }
 
-        private void HoverRow(string section)
-        {
-            if (!SettingsData.Flag(_cfg, "hover_details")) return;
-            if (_pinnedSection != null) return;                 // 固定中不跟随悬停
-            _hoverSection = section;
-            CancelPanelHide();
-            if (_popup.Section != section || !_popup.Visible) { _popup.Show(section, false, true); RefreshPopup(); }
-        }
-
-        private void LeaveRow(string section)
-        {
-            if (_hoverSection == section) _hoverSection = null;
-            if (_pinnedSection == null) SchedulePanelHide();
-        }
-
-        private void TogglePin(string section)
-        {
-            if (_tucked) { SetDockState(_dock, false, true); return; }   // 半隐藏首击只唤醒
-            if (_pinnedSection == section)
-            {
-                _pinnedSection = null;
-                _popup.Hide(true);
-            }
-            else
-            {
-                _pinnedSection = section;
-                CancelPanelHide();
-                _popup.Show(section, true, true);
-                RefreshPopup();
-            }
-        }
-
-        public void UnpinPanel()   // 面板上的 ✕
-        {
-            _pinnedSection = null;
-            _hoverSection = null;
-            _popup.Hide(true);
-        }
-
-        private void HidePopupAndPin()
-        {
-            _pinnedSection = null;
-            _hoverSection = null;
-            if (_popup != null) _popup.Hide(false);
-        }
-
-        private void RefreshPopup()
-        {
-            if (_popup != null && _popup.Visible) _popup.Refresh(_ds, _zc, _cfg);
-        }
-
-        public void DebugPopup(string section)
-        {
-            _pinnedSection = section;
-            Dispatcher.CurrentDispatcher.BeginInvoke((Action)delegate
-            {
-                _popup.Show(section, true, true);
-                RefreshPopup();
-            }, DispatcherPriority.ApplicationIdle);
-        }
-
-        // ---------- 图标行/角标 ----------
-        private Grid IconRow(Action onClick, Action onEnter, Action onLeave)
+        private Grid IconRow(string sec)
         {
             Grid g = new Grid
             {
@@ -1818,23 +1476,125 @@ namespace HDRToggle
                 Background = Brushes.Transparent,   // 保证空隙也能命中
                 Cursor = Cursors.Hand,
             };
-            g.MouseLeftButtonDown += delegate
-            {
-                StopPosAnim();
-                _downAt = DateTime.Now;
-                double preX = Left, preY = Top;
-                try { DragMove(); } catch { }
-                double moved = Math.Abs(Left - preX) + Math.Abs(Top - preY);
-                if (moved < 4 && (DateTime.Now - _downAt).TotalMilliseconds < 1500)
-                {
-                    if (_tucked) { SetDockState(_dock, false, true); return; }
-                    onClick();
-                }
-                else UpdateDock(true);
-            };
-            g.MouseEnter += delegate { onEnter(); };
-            g.MouseLeave += delegate { onLeave(); };
+            g.MouseLeftButtonDown += delegate { OnRowDown(sec); };
+            g.MouseEnter += delegate { HoverDrawer(sec); };
+            g.MouseLeave += delegate { LeaveDrawer(sec); };
             return g;
+        }
+
+        private void HoverDrawer(string sec)
+        {
+            if (!SettingsData.Flag(_cfg, "hover_details")) return;
+            if (_pinnedDrawer != null) return;          // 固定中不跟随悬停
+            _hoverDrawer = sec;
+            CancelPanelHide();
+            if (_openDrawer != sec) OpenDrawer(sec);
+        }
+
+        private void LeaveDrawer(string sec)
+        {
+            if (_hoverDrawer == sec) _hoverDrawer = null;
+            if (_pinnedDrawer == null) SchedulePanelHide();
+        }
+
+        private void OnRowDown(string sec)
+        {
+            StopPosAnim();
+            _downAt = DateTime.Now;
+            double preX = Left, preY = Top;
+            try { DragMove(); } catch { }
+            double moved = Math.Abs(Left - preX) + Math.Abs(Top - preY);
+            if (moved < 4 && (DateTime.Now - _downAt).TotalMilliseconds < 1500)
+            {
+                if (_tucked) { SetDockState(_dock, false, true); return; }   // 半隐藏首击只唤醒
+                TogglePin(sec);
+            }
+            else UpdateDock(true);
+        }
+
+        private void TogglePin(string sec)
+        {
+            if (_pinnedDrawer == sec)
+            {
+                _pinnedDrawer = null;
+                AnimateDrawer(sec, false);
+            }
+            else
+            {
+                _pinnedDrawer = sec;
+                CancelPanelHide();
+                OpenDrawer(sec);
+            }
+        }
+
+        private void OpenDrawer(string sec)
+        {
+            CancelPanelHide();
+            string other = sec == "ds" ? "zc" : "ds";
+            if (_openDrawer == other) AnimateDrawer(other, false);   // 互斥：开一个收另一个
+            AnimateDrawer(sec, true);
+        }
+
+        private void AnimateDrawer(string sec, bool open)
+        {
+            Grid g = sec == "ds" ? _dsDrawer : _zcDrawer;
+            StackPanel content = sec == "ds" ? _dsDrawerContent : _zcDrawerContent;
+            TranslateTransform slide = sec == "ds" ? _dsSlide : _zcSlide;
+            double target = sec == "ds" ? DsDrawerH : ZcDrawerH;
+            Duration dur = new Duration(TimeSpan.FromMilliseconds(180));
+            CubicEase ease = new CubicEase(); ease.EasingMode = EasingMode.EaseOut;
+            // 从当前值出发（DoubleAnimation 只给 To），中断时无跳变
+            DoubleAnimation ah = new DoubleAnimation(open ? target : 0, dur);
+            ah.EasingFunction = ease;
+            g.BeginAnimation(FrameworkElement.HeightProperty, ah);
+            DoubleAnimation ao = new DoubleAnimation(open ? 1 : 0, new Duration(TimeSpan.FromMilliseconds(open ? 200 : 110)));
+            content.BeginAnimation(UIElement.OpacityProperty, ao);
+            if (open)
+            {
+                slide.BeginAnimation(TranslateTransform.YProperty, null);
+                slide.Y = -10;
+                DoubleAnimation asl = new DoubleAnimation(-10, 0, dur);
+                asl.EasingFunction = ease;
+                slide.BeginAnimation(TranslateTransform.YProperty, asl);
+            }
+            _openDrawer = open ? sec : (_openDrawer == sec ? null : _openDrawer);
+            if (!open && _pinnedDrawer == sec) _pinnedDrawer = null;
+        }
+
+        private void CloseDrawersAndUnpin()
+        {
+            _pinnedDrawer = null;
+            _hoverDrawer = null;
+            if (_openDrawer != null) AnimateDrawer(_openDrawer, false);
+        }
+
+        // 布局调试：-popup:ds|zc 启动即固定展开对应抽屉
+        // 布局调试：-popup:ds|zc 启动即固定展开对应抽屉
+        public void DebugPopup(string section)
+        {
+            Dispatcher.CurrentDispatcher.BeginInvoke((Action)delegate
+            {
+                _pinnedDrawer = section;
+                OpenDrawer(section);
+            }, DispatcherPriority.ApplicationIdle);
+        }
+
+        private StackPanel RingMini(Ui.RingParts p, string caption)
+        {
+            StackPanel cell = new StackPanel { Width = 40 };
+            p.Ring.HorizontalAlignment = HorizontalAlignment.Center;
+            cell.Children.Add(p.Ring);
+            TextBlock cap = new TextBlock
+            {
+                Text = caption,
+                FontSize = 8.5,
+                Foreground = Ui.Brush(0x99, 0xFF, 0xFF, 0xFF),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 2, 0, 0),
+                IsHitTestVisible = false,
+            };
+            cell.Children.Add(cap);
+            return cell;
         }
 
         private Ellipse StatusDot()
@@ -1853,11 +1613,51 @@ namespace HDRToggle
             return e;
         }
 
-        private void ToggleHdr()
+        // ---------- HDR 双击确认（防误触） ----------
+        // 单击只「武装」：按钮变琥珀色显示「确认？」，3 秒内再点才真正切换；超时自动还原。
+        // 误触代价从「显示器切一次模式（黑屏几秒）」降为「按钮闪一下琥珀色」。
+        private void OnHdrDown()
+        {
+            StopPosAnim();
+            _downAt = DateTime.Now;
+            double preX = Left, preY = Top;
+            try { DragMove(); } catch { }
+            double moved = Math.Abs(Left - preX) + Math.Abs(Top - preY);
+            if (moved < 4 && (DateTime.Now - _downAt).TotalMilliseconds < 1500)
+            {
+                if (_tucked) { SetDockState(_dock, false, true); return; }   // 半隐藏首击只唤醒
+                if (!_hdrArmed) ArmHdr();
+                else { DisarmHdr(); ToggleHdrCore(); }
+            }
+            else UpdateDock(true);
+        }
+
+        private void ArmHdr()
+        {
+            _hdrArmed = true;
+            AnimateHdrVisual(Ui.Col(0xB0, 0x8A, 0x50, 0x00), Ui.Col(0xFF, 0xD2, 0x4A), 0.65);
+            _label.Text = "确认?";
+            _label.FontSize = 13;
+            SolidColorBrush tb = new SolidColorBrush(Ui.Col(0xFF, 0xFF, 0xFF));
+            tb.Freeze();
+            _label.Foreground = tb;
+            _armTimer.Stop();
+            _armTimer.Start();
+        }
+
+        private void DisarmHdr()
+        {
+            if (!_hdrArmed) return;
+            _hdrArmed = false;
+            _armTimer.Stop();
+            UpdateVisual(true);
+        }
+
+        private void ToggleHdrCore()
         {
             HdrCtl.ToggleHdr();
             Thread.Sleep(800);   // 等 Windows 完成模式切换
-            UpdateVisual();
+            UpdateVisual(true);
         }
 
         private void AnimateScale(double to)
@@ -1887,14 +1687,12 @@ namespace HDRToggle
             });
         }
 
-        private Color MoodColor(double frac)
+        private void FillRing(Ui.RingParts p, LimitInfo li, double low, double mid)
         {
-            double low = SettingsData.Num(_cfg, "warn_low", 20) / 100.0;
-            double mid = SettingsData.Num(_cfg, "warn_mid", 50) / 100.0;
-            int mood = DataFeed.MoodFromRemain(frac, low, mid);
-            if (mood == 0) return Ui.Col(0x7C, 0xFC, 0x9E);
-            if (mood == 1) return Ui.Col(0xFF, 0xD2, 0x4A);
-            return Ui.Col(0xFF, 0x6B, 0x6B);
+            if (li.RemainFrac < 0) { Ui.SetRing(p, -1, Colors.Black); return; }
+            int mood = DataFeed.MoodFromRemain(li.RemainFrac, low, mid);
+            Color c = mood == 0 ? Ui.Col(0x7C, 0xFC, 0x9E) : (mood == 1 ? Ui.Col(0xFF, 0xD2, 0x4A) : Ui.Col(0xFF, 0x6B, 0x6B));
+            Ui.SetRing(p, li.RemainFrac, c);
         }
 
         private void SetDot(Ellipse dot, Color c)
@@ -1909,6 +1707,20 @@ namespace HDRToggle
             double low = SettingsData.Num(_cfg, "warn_low", 20) / 100.0;
             double mid = SettingsData.Num(_cfg, "warn_mid", 50) / 100.0;
 
+            // 抽屉内容（收起时也照常填充，展开即见最新值）
+            if (_ds != null && _ds.Ok) _dsBalanceText.Text = DataFeed.CurrencySymbol(_ds.Currency) + " " + _ds.Balance;
+            else _dsBalanceText.Text = "--";
+            if (_zc != null && _zc.Ok)
+            {
+                FillRing(_zcFiveRing, _zc.Five, low, mid);
+                FillRing(_zcWeekRing, _zc.Week, low, mid);
+            }
+            else
+            {
+                Ui.SetRing(_zcFiveRing, -1, Colors.Black);
+                Ui.SetRing(_zcWeekRing, -1, Colors.Black);
+            }
+
             // 角标状态点
             if (_ds != null && _ds.Ok) SetDot(_dsDot, Ui.Col(0x7C, 0xFC, 0x9E));
             else if (_ds != null && _ds.Error != null && _ds.Error.Contains("未配置")) SetDot(_dsDot, Ui.Col(0x88, 0x99, 0x99, 0x99));
@@ -1916,38 +1728,42 @@ namespace HDRToggle
             if (_zc != null && _zc.Ok)
             {
                 double worst = Math.Min(_zc.Five.RemainFrac < 0 ? 1 : _zc.Five.RemainFrac, _zc.Week.RemainFrac < 0 ? 1 : _zc.Week.RemainFrac);
-                SetDot(_zcDot, MoodColor(worst));
+                int mood = DataFeed.MoodFromRemain(worst, low, mid);
+                SetDot(_zcDot, mood == 0 ? Ui.Col(0x7C, 0xFC, 0x9E) : (mood == 1 ? Ui.Col(0xFF, 0xD2, 0x4A) : Ui.Col(0xFF, 0x6B, 0x6B)));
             }
             else SetDot(_zcDot, Ui.Col(0xFF, 0x6B, 0x6B));
-
-            // 面板内容
-            if (_popup != null && _popup.Visible) _popup.Refresh(_ds, _zc, _cfg);
         }
 
-        private void UpdateVisual()
+        private void UpdateVisual(bool force)
         {
             int s = HdrCtl.GetHdrState();
-            if (s == _lastState) return;
+            if (!force && s == _lastState) return;
             _lastState = s;
-            // 平滑颜色过渡（非冻结画刷 + 颜色动画）
-            Color fill, glow, txt;
-            if (s == 2) { fill = Ui.Col(0x1F, 0x9D, 0x5C); glow = Ui.Col(0x2F, 0xD5, 0x75); txt = Ui.Col(0xFF, 0xFF, 0xFF); }
-            else if (s == 1) { fill = Ui.Col(0x35, 0x35, 0x35); glow = Ui.Col(0x00, 0x00, 0x00); txt = Ui.Col(0xCC, 0xCC, 0xCC); }
-            else { fill = Ui.Col(0x8A, 0x64, 0x00); glow = Ui.Col(0xFF, 0xD2, 0x4A); txt = Ui.Col(0xFF, 0xFF, 0xD2, 0x4A); }
+            if (_hdrArmed) return;   // 确认态视觉优先，不被状态轮询覆盖
+            Color fill, glow, txt; double glowO;
+            if (s == 2) { fill = Ui.Col(0x1F, 0x9D, 0x5C); glow = Ui.Col(0x2F, 0xD5, 0x75); glowO = 0.55; txt = Ui.Col(0xFF, 0xFF, 0xFF); }
+            else if (s == 1) { fill = Ui.Col(0x35, 0x35, 0x35); glow = Ui.Col(0x00, 0x00, 0x00); glowO = 0.25; txt = Ui.Col(0xCC, 0xCC, 0xCC); }
+            else { fill = Ui.Col(0x8A, 0x64, 0x00); glow = Ui.Col(0xFF, 0xD2, 0x4A); glowO = 0.5; txt = Ui.Col(0xFF, 0xFF, 0xD2, 0x4A); }
+            AnimateHdrVisual(fill, glow, glowO);
+            _label.Text = "HDR";
+            _label.FontSize = 14;
+            SolidColorBrush tb = new SolidColorBrush(txt);
+            tb.Freeze();
+            _label.Foreground = tb;
+        }
+
+        private void AnimateHdrVisual(Color fill, Color glow, double glowOpacity)
+        {
             Duration dur = new Duration(TimeSpan.FromMilliseconds(260));
             CubicEase ease = new CubicEase(); ease.EasingMode = EasingMode.EaseOut;
             ColorAnimation ca = new ColorAnimation(fill, dur);
             ca.EasingFunction = ease;
             ColorAnimation ga = new ColorAnimation(glow, dur);
             ga.EasingFunction = ease;
-            DoubleAnimation go = new DoubleAnimation(s == 2 ? 0.55 : (s == 1 ? 0.25 : 0.5), dur);
+            DoubleAnimation go = new DoubleAnimation(glowOpacity, dur);
             _hdrFill.BeginAnimation(SolidColorBrush.ColorProperty, ca);
             _hdrGlow.BeginAnimation(DropShadowEffect.ColorProperty, ga);
             _hdrGlow.BeginAnimation(DropShadowEffect.OpacityProperty, go);
-            SolidColorBrush txtBrush = new SolidColorBrush(txt);
-            txtBrush.Freeze();
-            _label.Foreground = txtBrush;
-            _label.Text = "HDR";
         }
 
         private static Border Sep()
@@ -2009,7 +1825,7 @@ namespace HDRToggle
         private void SetDockState(string edge, bool hidden, bool animate)
         {
             _dock = edge; _tucked = hidden;
-            if (hidden) HidePopupAndPin();   // 缩回时收起面板
+            if (hidden) CloseDrawersAndUnpin();   // 缩回时收起抽屉
             Point p = GetDockPos(edge, hidden);
             MoveWidgetTo(p.X, p.Y, animate);
         }
