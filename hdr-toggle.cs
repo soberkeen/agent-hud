@@ -312,6 +312,9 @@ namespace HDRToggle
             d["warn_mid"] = "50";                    // 剩余 <50% 黄
             d["hover_details"] = "true";             // 悬停弹出详情
             d["show_tray"] = "true";                 // 托盘图标
+            d["zc_mood_source"] = "five";            // GLM 表情驱动：five=5小时 / week=周 / worst=取最差
+            d["show_ds"] = "true";                   // 显示 DeepSeek 角色
+            d["show_zc"] = "true";                   // 显示 GLM 角色
             return d;
         }
 
@@ -356,6 +359,11 @@ namespace HDRToggle
             sb.AppendLine("hover_details=" + d["hover_details"]);
             sb.AppendLine("# 显示托盘图标");
             sb.AppendLine("show_tray=" + d["show_tray"]);
+            sb.AppendLine("# GLM 角色表情由哪个额度驱动：five=5小时 / week=本周 / worst=取更差的一个");
+            sb.AppendLine("zc_mood_source=" + d["zc_mood_source"]);
+            sb.AppendLine("# 显示哪些角色（只看一个或都不要都可以）");
+            sb.AppendLine("show_ds=" + d["show_ds"]);
+            sb.AppendLine("show_zc=" + d["show_zc"]);
             File.WriteAllText(IniPath, sb.ToString(), Encoding.UTF8);
         }
 
@@ -904,7 +912,8 @@ namespace HDRToggle
     {
         private readonly Widget _host;
         private readonly Dictionary<string, string> _cfg;
-        private CheckBox _chkAutostart, _chkTray, _chkHover, _chkShowKey;
+        private CheckBox _chkAutostart, _chkTray, _chkHover, _chkShowKey, _chkShowDs, _chkShowZc;
+        private ComboBox _cmbMoodSrc;
         private ComboBox _cmbRefresh, _cmbLow, _cmbMid;
         private PasswordBox _pwdKey;
         private TextBox _txtKey, _txtDsBase, _txtZcBase;
@@ -941,6 +950,19 @@ namespace HDRToggle
             _chkAutostart = AddCheck(s1, "开机自动启动侧边栏", SettingsData.GetAutostart());
             _chkTray = AddCheck(s1, "显示托盘图标（右键托盘可打开设置）", SettingsData.Flag(_cfg, "show_tray"));
             _chkHover = AddCheck(s1, "悬停图标时弹出详情面板", SettingsData.Flag(_cfg, "hover_details"));
+
+            StackPanel s1b = Section(root, "显示角色");
+            _chkShowDs = AddCheck(s1b, "DeepSeek 角色（大肥鱼，显示 API 余额）", SettingsData.Flag(_cfg, "show_ds"));
+            _chkShowZc = AddCheck(s1b, "GLM 角色（显示订阅额度）", SettingsData.Flag(_cfg, "show_zc"));
+            _cmbMoodSrc = AddCombo(s1b, "GLM 表情由哪个额度驱动", new string[] { "five", "week", "worst" }, _cfg["zc_mood_source"]);
+            TextBlock moodHint = new TextBlock
+            {
+                FontSize = 11.5,
+                Foreground = Ui.Brush(0x88, 0xFF, 0xFF, 0xFF),
+                Text = "five=5小时额度（推荐） / week=本周额度 / worst=两者取更差",
+                Margin = new Thickness(0, 2, 0, 0),
+            };
+            s1b.Children.Add(moodHint);
 
             // ===== 显示 =====
             StackPanel s2 = Section(root, "显示");
@@ -1181,6 +1203,12 @@ namespace HDRToggle
 
         private void SaveAndClose()
         {
+            if (_chkShowDs.IsChecked != true && _chkShowZc.IsChecked != true)
+            {
+                _testResult.Text = "至少保留一个角色，否则侧边栏只剩 HDR 开关。";
+                _testResult.Foreground = Ui.Brush(0xFF, 0xFF, 0xB0, 0xB0);
+                return;
+            }
             Dictionary<string, string> d = new Dictionary<string, string>(_cfg);
             d["deepseek_key"] = _chkShowKey.IsChecked == true ? _txtKey.Text : _pwdKey.Password;
             d["deepseek_base"] = string.IsNullOrWhiteSpace(_txtDsBase.Text) ? "https://api.deepseek.com" : _txtDsBase.Text.Trim();
@@ -1190,6 +1218,9 @@ namespace HDRToggle
             d["warn_mid"] = ComboValue(_cmbMid, null);
             d["hover_details"] = _chkHover.IsChecked == true ? "true" : "false";
             d["show_tray"] = _chkTray.IsChecked == true ? "true" : "false";
+            d["show_ds"] = _chkShowDs.IsChecked == true ? "true" : "false";
+            d["show_zc"] = _chkShowZc.IsChecked == true ? "true" : "false";
+            d["zc_mood_source"] = (string)_cmbMoodSrc.SelectedItem ?? "five";
             SettingsData.Save(d);
             SettingsData.SetAutostart(_chkAutostart.IsChecked == true);
             _host.ApplyConfigChanged();
@@ -1204,8 +1235,28 @@ namespace HDRToggle
         private const double SnapPx = 28;   // 距边缘多少像素内判定为吸附
         private const double DsDrawerH = 40;   // DeepSeek 抽屉展开高（纯余额一行）
         private const double ZcDrawerH = 54;   // ZCode 抽屉展开高（34 圈+标签）
-        private const double ClosedH = 254;    // 抽屉全收起的窗口高度
+        private const double ClosedH = 254;    // 抽屉全收起（双角色）的窗口高度
+        private const double RowH = 76;        // 单个角色行高（隐藏角色时从 ClosedH 扣除）
         private double _windowH = ClosedH;     // 当前窗口高度基准值（动画起点/终点计算用）
+
+        // 当前配置下的收起高度（隐藏角色会减行高；分隔线 7px 在行内已含，单角色减 1 条 mid sep≈7）
+        private double ClosedHeightNow()
+        {
+            double h = ClosedH;
+            bool ds = SettingsData.Flag(_cfg, "show_ds"), zc = SettingsData.Flag(_cfg, "show_zc");
+            if (!ds) h -= RowH;
+            if (!zc) h -= RowH;
+            if (!(ds && zc)) h -= 7;
+            return h;
+        }
+
+        private void UpdateHeightNow()
+        {
+            double target = ClosedHeightNow() + (_openDrawer == "ds" ? DsDrawerH : (_openDrawer == "zc" ? ZcDrawerH : 0));
+            BeginAnimation(Window.HeightProperty, null);
+            Height = target;
+            _windowH = target;
+        }
 
         private static readonly string PosFile = Path.Combine(SettingsData.ExeDir, "hdr-toggle.pos");
 
@@ -1227,6 +1278,7 @@ namespace HDRToggle
         // 图标行 + 抽屉
         private Ellipse _dsDot, _zcFiveDot, _zcWeekDot;
         private Grid _dsRow, _zcRow;
+        private Border _sepTop, _sepMid;
         private FramePlayer _dfPlayer, _zcPlayer;
         private DispatcherTimer _animTimer;
         private int _animIdx;
@@ -1334,9 +1386,11 @@ namespace HDRToggle
             hdrArea.MouseLeftButtonDown += delegate { OnHdrDown(); };
             stack.Children.Add(hdrArea);
 
-            stack.Children.Add(Sep());
+            _sepTop = Sep();
+            stack.Children.Add(_sepTop);
 
-            // ---- DeepSeek 行 + 抽屉（角色下方滑出纯余额） ----
+            // ---- DeepSeek 行 + 抽屉（show_ds=false 则整行不创建） ----
+            bool showDs = SettingsData.Flag(_cfg, "show_ds");
             _dsRow = IconRow("ds");
             _dfPlayer = new FramePlayer("anim.df.", 74, "Icon.Dafeiyu.png");
             _dsDot = StatusDot(10);
@@ -1347,8 +1401,7 @@ namespace HDRToggle
             _dsRow.Children.Add(_dsDot);
             _dsRow.ToolTip = "DeepSeek 余额（悬停展开，点击固定/收起）";
             stack.Children.Add(_dsRow);
-
-            _dsSlide = new TranslateTransform();
+            if (!showDs) _dsRow.Visibility = Visibility.Collapsed;
             _dsDrawerContent = new StackPanel { RenderTransform = _dsSlide, Opacity = 0 };
             _dsBalanceText = new TextBlock
             {
@@ -1366,9 +1419,11 @@ namespace HDRToggle
             _dsDrawer.MouseLeave += delegate { SchedulePanelHide(); };
             stack.Children.Add(_dsDrawer);
 
-            stack.Children.Add(Sep());
+            _sepMid = Sep();
+            stack.Children.Add(_sepMid);
 
-            // ---- ZCode 行 + 抽屉（角色下方滑出双圈） ----
+            // ---- ZCode 行 + 抽屉（show_zc=false 则整行不创建） ----
+            bool showZc = SettingsData.Flag(_cfg, "show_zc");
             _zcRow = IconRow("zc");
             _zcPlayer = new FramePlayer("anim.zc.", 74, "Icon.Zcode.png");
             _zcFiveDot = StatusDot(9);
@@ -1389,6 +1444,7 @@ namespace HDRToggle
             _zcRow.Children.Add(zcDots);
             _zcRow.ToolTip = "ZCode 订阅用量（悬停展开，点击固定/收起）";
             stack.Children.Add(_zcRow);
+            if (!showZc) _zcRow.Visibility = Visibility.Collapsed;
 
             _zcSlide = new TranslateTransform();
             _zcDrawerContent = new StackPanel
@@ -1545,6 +1601,7 @@ namespace HDRToggle
 
         public void Start()
         {
+            UpdateHeightNow();
             UpdateVisual(false);
             if (MockCycle)
             {
@@ -1620,11 +1677,16 @@ namespace HDRToggle
             _settings.Show();
         }
 
-        // 设置保存后：重读配置、同步托盘、立刻刷新数据
+        // 设置保存后：重读配置、同步托盘/角色可见性、立刻刷新数据
         public void ApplyConfigChanged()
         {
             _cfg = SettingsData.Load();
             if (_tray != null) _tray.Visible = SettingsData.Flag(_cfg, "show_tray");
+            if (_dsRow != null) _dsRow.Visibility = SettingsData.Flag(_cfg, "show_ds") ? Visibility.Visible : Visibility.Collapsed;
+            if (_zcRow != null) _zcRow.Visibility = SettingsData.Flag(_cfg, "show_zc") ? Visibility.Visible : Visibility.Collapsed;
+            if (_sepMid != null) _sepMid.Visibility = (_dsRow != null && _dsRow.Visibility == Visibility.Visible && _zcRow != null && _zcRow.Visibility == Visibility.Visible) ? Visibility.Visible : Visibility.Collapsed;
+            if (_sepTop != null) _sepTop.Visibility = (_dsRow != null && _dsRow.Visibility == Visibility.Visible && SettingsData.Flag(_cfg, "show_ds")) ? Visibility.Visible : Visibility.Collapsed;
+            UpdateHeightNow();
             RefreshData();
         }
 
@@ -1729,7 +1791,7 @@ namespace HDRToggle
             if (!open && _pinnedDrawer == sec) _pinnedDrawer = null;
 
             // 窗口高度跟随抽屉伸缩，底部不留透明空底
-            double newH = ClosedH + (open ? target : 0);
+            double newH = ClosedHeightNow() + (open ? target : 0);
             Duration wdur = new Duration(TimeSpan.FromMilliseconds(180));
             CubicEase wease = new CubicEase(); wease.EasingMode = EasingMode.EaseOut;
             DoubleAnimation aw = new DoubleAnimation(newH, wdur);
@@ -1957,7 +2019,15 @@ namespace HDRToggle
             else { _dfFrozen = true; _dfMoodNow = -1; }
             if (_zc != null && _zc.Ok)
             {
-                double worst = Math.Min(_zc.Five.RemainFrac < 0 ? 1 : _zc.Five.RemainFrac, _zc.Week.RemainFrac < 0 ? 1 : _zc.Week.RemainFrac);
+                // 表情驱动源：five=5小时为主 / week=周为主 / worst=取更差（设置页可选）
+                double driver;
+                switch (_cfg["zc_mood_source"])
+                {
+                    case "week": driver = _zc.Week.RemainFrac < 0 ? 1 : _zc.Week.RemainFrac; break;
+                    case "worst": driver = Math.Min(_zc.Five.RemainFrac < 0 ? 1 : _zc.Five.RemainFrac, _zc.Week.RemainFrac < 0 ? 1 : _zc.Week.RemainFrac); break;
+                    default: driver = _zc.Five.RemainFrac < 0 ? 1 : _zc.Five.RemainFrac; break;
+                }
+                double worst = driver;
                 int cand = DataFeed.MoodFromRemain(worst, low, mid);
                 int m = _lastZcMood;
                 if (cand != m)
