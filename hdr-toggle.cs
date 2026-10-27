@@ -785,6 +785,7 @@ namespace HDRToggle
                     string cmd = first.TrimStart('-', '/').ToLowerInvariant();
                     if (cmd == "popup:ds" || cmd == "popup:zc") return RunGui(false, cmd.Substring(6));
                     if (cmd == "settings") return RunGui(true, null);
+                    if (cmd == "mockcycle") return RunGui(false, null, true);
                     return RunCli(cmd);
                 }
                 return RunGui(false, null);
@@ -838,7 +839,7 @@ namespace HDRToggle
                         return (ds.Ok && zc.Ok) ? 0 : 2;
                     }
                 default:
-                    Out("usage: hdr-toggle.exe [-state|-toggle|-on|-off|-quit|-debugdata|-settings|-popup:ds|-popup:zc]");
+                    Out("usage: hdr-toggle.exe [-state|-toggle|-on|-off|-quit|-debugdata|-settings|-popup:ds|-popup:zc|-mockcycle]");
                     return 9;
             }
         }
@@ -870,7 +871,7 @@ namespace HDRToggle
             catch { }
         }
 
-        static int RunGui(bool openSettings, string popupDebug)
+        static int RunGui(bool openSettings, string popupDebug, bool mockCycle = false)
         {
             _mutex = new Mutex(false, "Local\\HdrToggleWidget");   // 单实例
             bool owned;
@@ -888,6 +889,7 @@ namespace HDRToggle
             }
             EventWaitHandle showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\HdrToggleWidgetShow");
             Widget w = new Widget(showEvent);
+            w.MockCycle = mockCycle;
             w.Show();
             if (openSettings) w.OpenSettings();
             if (popupDebug != null) w.DebugPopup(popupDebug);
@@ -1458,6 +1460,7 @@ namespace HDRToggle
             _dataTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
             _dataTimer.Tick += delegate
             {
+                if (MockCycle) return;
                 double mins = SettingsData.Num(_cfg, "refresh_minutes", 5);
                 if ((DateTime.Now - _lastFetch).TotalMinutes >= mins) RefreshData();
             };
@@ -1470,7 +1473,7 @@ namespace HDRToggle
                     if (_tucked) SetDockState(_dock, false, true);   // 悬停弹出
                 }
                 double mins = SettingsData.Num(_cfg, "refresh_minutes", 5);
-                if ((DateTime.Now - _lastFetch).TotalMinutes >= mins) RefreshData();   // 弹出时顺带补数据
+                if (!MockCycle && (DateTime.Now - _lastFetch).TotalMinutes >= mins) RefreshData();   // 弹出时顺带补数据
             };
             MouseLeave += delegate
             {
@@ -1543,6 +1546,15 @@ namespace HDRToggle
         public void Start()
         {
             UpdateVisual(false);
+            if (MockCycle)
+            {
+                _mockMood = 0;
+                ApplyMock();
+                _mockTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(6) };
+                _mockTimer.Tick += delegate { _mockMood = (_mockMood + 1) % 3; ApplyMock(); };
+                _mockTimer.Start();
+            }
+            else RefreshData();
             _animTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
             _animTimer.Tick += delegate
             {
@@ -1782,6 +1794,34 @@ namespace HDRToggle
             return e;
         }
 
+        // ---------- 调试：合成数据轮播 ----------
+        // 步骤0: 全绿；步骤1: 5时黄/本周绿/紧张；步骤2: 5时红/本周黄/痴呆，余额负数
+        private void ApplyMock()
+        {
+            double[] five = { 0.80, 0.35, 0.10 };
+            double[] week = { 0.60, 0.90, 0.45 };
+            string[] bal = { "128.40", "12.00", "-3.50" };
+            int m = _mockMood;
+            ZcInfo zc = new ZcInfo();
+            zc.Ok = true; zc.Level = "mock";
+            zc.Five = MockLimit(five[m], 2000, DateTime.Now.AddHours(2));
+            zc.Week = MockLimit(week[m], 10000, DateTime.Now.AddDays(3));
+            DsInfo ds = new DsInfo();
+            ds.Ok = true; ds.Currency = "CNY"; ds.Balance = bal[m]; ds.Granted = "10.00";
+            _ds = ds; _zc = zc;
+            ApplyData();
+        }
+
+        private LimitInfo MockLimit(double frac, double total, DateTime reset)
+        {
+            LimitInfo li = new LimitInfo();
+            li.RemainFrac = frac;
+            li.Total = total;
+            li.Used = Math.Round(total * (1 - frac));
+            li.ResetAt = reset;
+            return li;
+        }
+
         // ---------- HDR 双击确认（防误触） ----------
         // 单击只「武装」：按钮变琥珀色显示「确认？」，3 秒内再点才真正切换；超时自动还原。
         // 误触代价从「显示器切一次模式（黑屏几秒）」降为「按钮闪一下琥珀色」。
@@ -1865,6 +1905,9 @@ namespace HDRToggle
         }
 
         private int _dfMoodNow = -1, _zcMoodNow = -1;
+        public bool MockCycle;          // 调试：合成数据轮播三种状态，不联网
+        private int _mockMood = -1;
+        private DispatcherTimer _mockTimer;
 
         private Color MoodColor(double frac, double low, double mid)
         {
