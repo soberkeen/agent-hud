@@ -23,10 +23,15 @@ if ($SetupOnly -and -not (Test-Path $appExe)) { throw "缺少 hdr-toggle.exe：-
 
 if (-not $SetupOnly) {
     Write-Host '== 编译 hdr-toggle.exe =='
+$iconDfy = Join-Path $PSScriptRoot 'icon-dafeiyu.png'
+$iconZc  = Join-Path $PSScriptRoot 'icon-zcode.png'
+$resDfy  = '-res:{0},Icon.Dafeiyu.png' -f $iconDfy
+$resZc   = '-res:{0},Icon.Zcode.png'   -f $iconZc
 & $csc -nologo -target:winexe -out:$appExe -win32icon:$icon -win32manifest:$manifest `
     -r:"$wpf\PresentationFramework.dll" -r:"$wpf\PresentationCore.dll" `
     -r:"$wpf\WindowsBase.dll" -r:"$framework\System.Xaml.dll" `
-    $src
+    -r:"$framework\System.Web.Extensions.dll" `
+    $resDfy $resZc $src
     if ($LASTEXITCODE -ne 0) { throw "hdr-toggle.exe 编译失败 (exit $LASTEXITCODE)" }
 }
 
