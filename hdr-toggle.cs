@@ -193,15 +193,13 @@ namespace HDRToggle
         // 关闭正在运行的实例（标题 HDR Toggle 的可见窗口发 WM_CLOSE）
         public static bool CloseRunningWidget()
         {
+            // 不筛可见性：窗口可能处于托盘隐藏状态，也要能被 -quit 关掉
             bool found = false;
             EnumWindows(delegate(IntPtr h, IntPtr lp)
             {
-                if (IsWindowVisible(h))
-                {
-                    StringBuilder sb = new StringBuilder(256);
-                    GetWindowText(h, sb, 256);
-                    if (sb.ToString() == "HDR Toggle") { PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero); found = true; return false; }
-                }
+                StringBuilder sb = new StringBuilder(256);
+                GetWindowText(h, sb, 256);
+                if (sb.ToString() == "HDR Toggle") { PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero); found = true; return false; }
                 return true;
             }, IntPtr.Zero);
             return found;
@@ -815,8 +813,21 @@ namespace HDRToggle
         static int RunGui(bool openSettings, string popupDebug)
         {
             _mutex = new Mutex(false, "Local\\HdrToggleWidget");   // 单实例
-            if (!_mutex.WaitOne(0)) return 0;
-            Widget w = new Widget();
+            bool owned;
+            try { owned = _mutex.WaitOne(0); }
+            catch (AbandonedMutexException) { owned = true; }
+            if (!owned)
+            {
+                // 已有实例在跑（窗口可能被藏了）：发信号让老实例把窗口亮出来
+                EventWaitHandle show;
+                if (EventWaitHandle.TryOpenExisting("Local\\HdrToggleWidgetShow", out show))
+                {
+                    try { show.Set(); } catch { } finally { show.Dispose(); }
+                }
+                return 0;
+            }
+            EventWaitHandle showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\HdrToggleWidgetShow");
+            Widget w = new Widget(showEvent);
             w.Show();
             if (openSettings) w.OpenSettings();
             if (popupDebug != null) w.DebugPopup(popupDebug);
@@ -1180,7 +1191,7 @@ namespace HDRToggle
         public DsInfo LatestDs { get { return _ds; } }
         public ZcInfo LatestZc { get { return _zc; } }
 
-        public Widget()
+        public Widget(EventWaitHandle showEvent)
         {
             Title = "HDR Toggle";
             Width = 104; Height = 358;   // 固定为最大高度（抽屉开合不再改变窗口大小），透明区域鼠标点穿
@@ -1393,6 +1404,52 @@ namespace HDRToggle
             };
 
             SetupTray();
+            PromoteTrayIcon();
+
+            if (showEvent != null)
+            {
+                ThreadPool.QueueUserWorkItem(delegate
+                {
+                    try
+                    {
+                        while (showEvent.WaitOne())
+                        {
+                            Dispatcher.BeginInvoke((Action)delegate
+                            {
+                                if (Visibility != Visibility.Visible) ToggleVisible();
+                                else { Show(); WindowState = WindowState.Normal; }   // 已显示则带回前台
+                            });
+                        }
+                    }
+                    catch { }
+                });
+            }
+        }
+
+        // Win11 默认把新托盘图标收进隐藏区：写 IsPromoted 直接钉在任务栏上
+        private void PromoteTrayIcon()
+        {
+            try
+            {
+                string exe = Assembly.GetExecutingAssembly().Location;
+                using (Microsoft.Win32.RegistryKey k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey("Control Panel\\NotifyIconSettings", true))
+                {
+                    if (k == null) return;
+                    foreach (string name in k.GetSubKeyNames())
+                    {
+                        using (Microsoft.Win32.RegistryKey sub = k.OpenSubKey(name, true))
+                        {
+                            object v = sub == null ? null : sub.GetValue("ExecutablePath");
+                            if (v is string && string.Equals((string)v, exe, StringComparison.OrdinalIgnoreCase))
+                            {
+                                sub.SetValue("IsPromoted", 1, Microsoft.Win32.RegistryValueKind.DWord);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
         }
 
         public void Start()
@@ -1423,7 +1480,10 @@ namespace HDRToggle
                 _tray.ContextMenuStrip = menu;
                 _tray.MouseUp += delegate(object sender, WF.MouseEventArgs e)
                 {
-                    if (e.Button == WF.MouseButtons.Left) ToggleVisible();
+                    // 左键只把窗口亮出来（含带回前台）；藏窗口走右键菜单，防止误点后找不到
+                    if (e.Button != WF.MouseButtons.Left) return;
+                    if (Visibility != Visibility.Visible) ToggleVisible();
+                    else { Show(); WindowState = WindowState.Normal; }
                 };
             }
             catch { _tray = null; }
