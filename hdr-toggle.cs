@@ -1129,7 +1129,7 @@ namespace HDRToggle
     {
         private const double Sliver = 12;   // 半隐藏时保留可见的宽度
         private const double SnapPx = 28;   // 距边缘多少像素内判定为吸附
-        private const double DsDrawerH = 34;   // DeepSeek 抽屉展开高（纯余额一行）
+        private const double DsDrawerH = 40;   // DeepSeek 抽屉展开高（纯余额一行）
         private const double ZcDrawerH = 52;   // ZCode 抽屉展开高（双圈并排）
 
         private static readonly string PosFile = Path.Combine(SettingsData.ExeDir, "hdr-toggle.pos");
@@ -1183,7 +1183,7 @@ namespace HDRToggle
         public Widget()
         {
             Title = "HDR Toggle";
-            Width = 80; Height = 284;   // 固定为最大高度（抽屉开合不再改变窗口大小），透明区域鼠标点穿
+            Width = 104; Height = 342;   // 固定为最大高度（抽屉开合不再改变窗口大小），透明区域鼠标点穿
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;   // 禁用系统贴边分屏放大（Aero Snap）
             AllowsTransparency = true;
@@ -1209,16 +1209,16 @@ namespace HDRToggle
             Content = _root;
 
             // ---- HDR 圆钮（美化 + 双击确认防误触） ----
-            Grid hdrArea = new Grid { Height = 64, Background = Brushes.Transparent, Cursor = Cursors.Hand };
+            Grid hdrArea = new Grid { Height = 80, Background = Brushes.Transparent, Cursor = Cursors.Hand };
             _hdrScale = new ScaleTransform(1, 1);
             _hdrFill = new SolidColorBrush(Color.FromArgb(0xFF, 0x35, 0x35, 0x35));
             _hdrGlow = new DropShadowEffect { BlurRadius = 16, ShadowDepth = 0, Opacity = 0.25 };
             _hdrBtn = new Border
             {
-                Width = 56, Height = 56,
+                Width = 72, Height = 72,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
-                CornerRadius = new CornerRadius(16),
+                CornerRadius = new CornerRadius(20),
                 Background = _hdrFill,
                 BorderBrush = Ui.Brush(0x55, 0xFF, 0xFF, 0xFF),
                 BorderThickness = new Thickness(1),
@@ -1230,7 +1230,7 @@ namespace HDRToggle
             _label = new TextBlock
             {
                 Text = "HDR",
-                FontSize = 14,
+                FontSize = 17,
                 FontWeight = FontWeights.Bold,
                 Foreground = Ui.Brush(0xFF, 0xEE, 0xEE, 0xEE),
                 HorizontalAlignment = HorizontalAlignment.Center,
@@ -1248,7 +1248,7 @@ namespace HDRToggle
 
             // ---- DeepSeek 行 + 抽屉（角色下方滑出纯余额） ----
             _dsRow = IconRow("ds");
-            Image dsIcon = Ui.IconImage("Icon.Dafeiyu.png", 48);
+            Image dsIcon = Ui.IconImage("Icon.Dafeiyu.png", 64);
             dsIcon.VerticalAlignment = VerticalAlignment.Center;
             dsIcon.HorizontalAlignment = HorizontalAlignment.Center;
             dsIcon.IsHitTestVisible = false;
@@ -1262,11 +1262,11 @@ namespace HDRToggle
             _dsDrawerContent = new StackPanel { RenderTransform = _dsSlide, Opacity = 0 };
             _dsBalanceText = new TextBlock
             {
-                FontSize = 15,
+                FontSize = 17,
                 FontWeight = FontWeights.Bold,
                 Foreground = Ui.Brush(0xFF, 0xFF, 0xFF, 0xFF),
                 HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(0, 4, 0, 0),
+                Margin = new Thickness(0, 6, 0, 0),
                 IsHitTestVisible = false,
             };
             _dsDrawerContent.Children.Add(_dsBalanceText);
@@ -1280,7 +1280,7 @@ namespace HDRToggle
 
             // ---- ZCode 行 + 抽屉（角色下方滑出双圈） ----
             _zcRow = IconRow("zc");
-            Image zcIcon = Ui.IconImage("Icon.Zcode.png", 48);
+            Image zcIcon = Ui.IconImage("Icon.Zcode.png", 64);
             zcIcon.VerticalAlignment = VerticalAlignment.Center;
             zcIcon.HorizontalAlignment = HorizontalAlignment.Center;
             zcIcon.IsHitTestVisible = false;
@@ -1299,10 +1299,10 @@ namespace HDRToggle
                 Margin = new Thickness(0, 2, 0, 0),
             };
             StackPanel rings = new StackPanel { Orientation = Orientation.Horizontal };
-            _zcFiveRing = Ui.MakeRing(32, 3.5, 9.5);
-            _zcWeekRing = Ui.MakeRing(32, 3.5, 9.5);
+            _zcFiveRing = Ui.MakeRing(40, 4, 11);
+            _zcWeekRing = Ui.MakeRing(40, 4, 11);
             rings.Children.Add(RingMini(_zcFiveRing, "5时"));
-            rings.Children.Add(new Border { Width = 4 });
+            rings.Children.Add(new Border { Width = 8 });
             rings.Children.Add(RingMini(_zcWeekRing, "本周"));
             _zcDrawerContent.Children.Add(rings);
             _zcDrawer = new Grid { Height = 0, ClipToBounds = true, Background = Brushes.Transparent };
@@ -1472,7 +1472,7 @@ namespace HDRToggle
         {
             Grid g = new Grid
             {
-                Height = 56,
+                Height = 68,
                 Background = Brushes.Transparent,   // 保证空隙也能命中
                 Cursor = Cursors.Hand,
             };
@@ -1581,13 +1581,13 @@ namespace HDRToggle
 
         private StackPanel RingMini(Ui.RingParts p, string caption)
         {
-            StackPanel cell = new StackPanel { Width = 34 };
+            StackPanel cell = new StackPanel { Width = 44 };
             p.Ring.HorizontalAlignment = HorizontalAlignment.Center;
             cell.Children.Add(p.Ring);
             TextBlock cap = new TextBlock
             {
                 Text = caption,
-                FontSize = 8.5,
+                FontSize = 9.5,
                 Foreground = Ui.Brush(0x99, 0xFF, 0xFF, 0xFF),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 Margin = new Thickness(0, 2, 0, 0),
@@ -1601,13 +1601,13 @@ namespace HDRToggle
         {
             Ellipse e = new Ellipse
             {
-                Width = 9, Height = 9,
+                Width = 10, Height = 10,
                 Fill = Ui.Brush(0xFF, 0x99, 0x99, 0x99),
                 Stroke = Ui.Brush(0xCC, 0x20, 0x20, 0x20),
                 StrokeThickness = 2,
                 HorizontalAlignment = HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Bottom,
-                Margin = new Thickness(0, 0, 11, 3),
+                Margin = new Thickness(0, 0, 9, 4),
                 IsHitTestVisible = false,
             };
             return e;
