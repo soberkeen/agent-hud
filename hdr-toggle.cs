@@ -709,6 +709,60 @@ namespace HDRToggle
         }
     }
 
+    // ---------- 帧动画播放器（精灵图 + 乒乓循环，按额度状态切表） ----------
+    internal class FramePlayer
+    {
+        private readonly Image _img = new Image();
+        private readonly string _prefix;      // 资源名前缀，如 "anim.df."
+        private readonly string _fallbackRes; // 精灵图缺失时的静态兜底
+        private readonly Dictionary<string, BitmapSource> _cache = new Dictionary<string, BitmapSource>();
+        private string _sheet;
+        private const int Frames = 12;
+        private const int FrameW = 96, FrameH = 96;
+
+        public FramePlayer(string prefix, double size, string fallbackRes)
+        {
+            _prefix = prefix;
+            _fallbackRes = fallbackRes;
+            _img.Width = size;
+            _img.Height = size;
+            _img.IsHitTestVisible = false;
+            RenderOptions.SetBitmapScalingMode(_img, BitmapScalingMode.HighQuality);
+            SetSheet("normal");
+        }
+
+        public Image Visual { get { return _img; } }
+
+        public void SetSheet(string key)
+        {
+            if (_sheet == key) return;
+            BitmapSource bmp;
+            if (!_cache.TryGetValue(key, out bmp) || bmp == null)
+            {
+                try { bmp = Ui.ResImage(_prefix + key + ".png") as BitmapSource; }
+                catch { bmp = null; }
+                _cache[key] = bmp;
+            }
+            if (bmp == null)
+            {
+                _sheet = null;
+                if (_fallbackRes != null) _img.Source = Ui.ResImage(_fallbackRes);   // 静态兜底
+                return;
+            }
+            _sheet = key;
+            SetFrame(0);
+        }
+
+        public void SetFrame(int i)
+        {
+            if (_sheet == null) return;
+            BitmapSource bmp;
+            if (!_cache.TryGetValue(_sheet, out bmp) || bmp == null) return;
+            i = Math.Max(0, Math.Min(Frames - 1, i));
+            _img.Source = new CroppedBitmap(bmp, new Int32Rect(i * FrameW, 0, FrameW, FrameH));
+        }
+    }
+
     public static class Program
     {
         private static Mutex _mutex;
@@ -1165,6 +1219,20 @@ namespace HDRToggle
         // 图标行 + 抽屉
         private Ellipse _dsDot, _zcDot;
         private Grid _dsRow, _zcRow;
+        private FramePlayer _dfPlayer, _zcPlayer;
+        private DispatcherTimer _animTimer;
+        private int _animIdx;
+        private bool _dfFrozen, _zcFrozen;   // 数据异常时定格，不瞎动
+        private static readonly int[] Seq = BuildSeq();
+
+        private static int[] BuildSeq()
+        {
+            // 乒乓序列 0..11,10..1：AI 视频首尾接不上也能无缝循环
+            List<int> l = new List<int>();
+            for (int i = 0; i < 12; i++) l.Add(i);
+            for (int i = 10; i >= 1; i--) l.Add(i);
+            return l.ToArray();
+        }
         private Grid _dsDrawer, _zcDrawer;
         private StackPanel _dsDrawerContent, _zcDrawerContent;
         private TranslateTransform _dsSlide, _zcSlide;
@@ -1261,12 +1329,9 @@ namespace HDRToggle
 
             // ---- DeepSeek 行 + 抽屉（角色下方滑出纯余额） ----
             _dsRow = IconRow("ds");
-            Image dsIcon = Ui.IconImage("Icon.Dafeiyu.png", 74);
-            dsIcon.VerticalAlignment = VerticalAlignment.Center;
-            dsIcon.HorizontalAlignment = HorizontalAlignment.Center;
-            dsIcon.IsHitTestVisible = false;
+            _dfPlayer = new FramePlayer("anim.df.", 74, "Icon.Dafeiyu.png");
             _dsDot = StatusDot();
-            _dsRow.Children.Add(dsIcon);
+            _dsRow.Children.Add(_dfPlayer.Visual);
             _dsRow.Children.Add(_dsDot);
             _dsRow.ToolTip = "DeepSeek 余额（悬停展开，点击固定/收起）";
             stack.Children.Add(_dsRow);
@@ -1293,12 +1358,9 @@ namespace HDRToggle
 
             // ---- ZCode 行 + 抽屉（角色下方滑出双圈） ----
             _zcRow = IconRow("zc");
-            Image zcIcon = Ui.IconImage("Icon.Zcode.png", 74);
-            zcIcon.VerticalAlignment = VerticalAlignment.Center;
-            zcIcon.HorizontalAlignment = HorizontalAlignment.Center;
-            zcIcon.IsHitTestVisible = false;
+            _zcPlayer = new FramePlayer("anim.zc.", 74, "Icon.Zcode.png");
             _zcDot = StatusDot();
-            _zcRow.Children.Add(zcIcon);
+            _zcRow.Children.Add(_zcPlayer.Visual);
             _zcRow.Children.Add(_zcDot);
             _zcRow.ToolTip = "ZCode 订阅用量（悬停展开，点击固定/收起）";
             stack.Children.Add(_zcRow);
@@ -1400,6 +1462,7 @@ namespace HDRToggle
                 _pollTimer.Stop();
                 _dataTimer.Stop();
                 _armTimer.Stop();
+                if (_animTimer != null) _animTimer.Stop();
                 if (_tray != null) { _tray.Visible = false; _tray.Dispose(); }
                 try { File.WriteAllText(PosFile, ((int)Left).ToString() + "," + ((int)Top).ToString()); } catch { }
                 Dispatcher.BeginInvokeShutdown(DispatcherPriority.Background);
@@ -1457,6 +1520,14 @@ namespace HDRToggle
         public void Start()
         {
             UpdateVisual(false);
+            _animTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+            _animTimer.Tick += delegate
+            {
+                _animIdx = (_animIdx + 1) % Seq.Length;
+                if (!_dfFrozen) _dfPlayer.SetFrame(Seq[_animIdx]);
+                if (!_zcFrozen) _zcPlayer.SetFrame(Seq[_animIdx]);
+            };
+            _animTimer.Start();
             _pollTimer.Start();
             UpdateDock(false);   // 上次关闭时若贴边，启动即恢复半隐藏
             RefreshData();
@@ -1798,6 +1869,25 @@ namespace HDRToggle
                 Ui.SetRing(_zcFiveRing, -1, Colors.Black);
                 Ui.SetRing(_zcWeekRing, -1, Colors.Black);
             }
+
+            // 动画表切换（DS：余额映射心情；异常时定格不播）
+            if (_ds != null && _ds.Ok)
+            {
+                double bal; bool num = double.TryParse(_ds.Balance, System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture, out bal);
+                int mood = !num ? 0 : (bal <= 0 ? 2 : (bal < 20 ? 1 : 0));
+                _dfPlayer.SetSheet(mood == 0 ? "normal" : (mood == 1 ? "worry" : "daze"));
+                _dfFrozen = false;
+            }
+            else _dfFrozen = true;
+            if (_zc != null && _zc.Ok)
+            {
+                double worst = Math.Min(_zc.Five.RemainFrac < 0 ? 1 : _zc.Five.RemainFrac, _zc.Week.RemainFrac < 0 ? 1 : _zc.Week.RemainFrac);
+                int mood = DataFeed.MoodFromRemain(worst, low, mid);
+                _zcPlayer.SetSheet(mood == 0 ? "normal" : (mood == 1 ? "worry" : "daze"));
+                _zcFrozen = false;
+            }
+            else _zcFrozen = true;
 
             // 角标状态点
             if (_ds != null && _ds.Ok) SetDot(_dsDot, Ui.Col(0x7C, 0xFC, 0x9E));
