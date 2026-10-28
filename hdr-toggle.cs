@@ -725,7 +725,7 @@ namespace HDRToggle
         private readonly string _fallbackRes; // 精灵图缺失时的静态兜底
         private readonly Dictionary<string, BitmapSource> _cache = new Dictionary<string, BitmapSource>();
         private string _sheet;
-        private const int Frames = 12;
+        private int _frames = 1;
         private const int FrameW = 96, FrameH = 96;
 
         private readonly TranslateTransform _shift = new TranslateTransform();
@@ -764,15 +764,16 @@ namespace HDRToggle
                 return;
             }
             _sheet = key;
+            _frames = Math.Max(1, bmp.PixelWidth / FrameW);
             SetFrame(0);
         }
 
         public void SetFrame(int i)
         {
-            if (_sheet == null) return;
+            if (_sheet == null || _frames <= 0) return;
             BitmapSource bmp;
             if (!_cache.TryGetValue(_sheet, out bmp) || bmp == null) return;
-            i = Math.Max(0, Math.Min(Frames - 1, i));
+            i = ((i % _frames) + _frames) % _frames;   // 循环取帧
             _img.Source = new CroppedBitmap(bmp, new Int32Rect(i * FrameW, 0, FrameW, FrameH));
         }
     }
@@ -1366,15 +1367,7 @@ namespace HDRToggle
         private int _animIdx;
         private bool _dfFrozen, _zcFrozen;   // 数据异常时定格，不瞎动
         private int _lastZcMood = -1;        // 额度分档迟滞用，防阈值附近反复横跳
-        private static readonly int[] Seq = BuildSeq();
 
-        private static int[] BuildSeq()
-        {
-            // 纯正向播放：精灵图流水线已按「首尾最接近」挑循环窗口，无需倒放
-            int[] a = new int[12];
-            for (int i = 0; i < 12; i++) a[i] = i;
-            return a;
-        }
         private Grid _dsDrawer, _zcDrawer;
         private StackPanel _dsDrawerContent, _zcDrawerContent;
         private TranslateTransform _dsSlide, _zcSlide;
@@ -1694,12 +1687,12 @@ namespace HDRToggle
                 _mockTimer.Start();
             }
             else RefreshData();
-            _animTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(85) };   // 12.5fps，循环窗约 1 秒 = 实时速度
+            _animTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };   // 25fps 播放，与素材帧率一致
             _animTimer.Tick += delegate
             {
-                _animIdx = (_animIdx + 1) % Seq.Length;
-                if (!_dfFrozen) _dfPlayer.SetFrame(Seq[_animIdx]);
-                if (!_zcFrozen) _zcPlayer.SetFrame(Seq[_animIdx]);
+                _animIdx++;
+                if (!_dfFrozen) _dfPlayer.SetFrame(_animIdx);   // SetFrame 内部按各表帧数取模
+                if (!_zcFrozen) _zcPlayer.SetFrame(_animIdx);
             };
             _animTimer.Start();
             _pollTimer.Start();
