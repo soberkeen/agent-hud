@@ -184,6 +184,10 @@ namespace HDRToggle
             return s;
         }
 
+        [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
+        private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        private const uint SWP_NOSIZE = 0x1, SWP_NOMOVE = 0x2, SWP_NOACTIVATE = 0x10;
+
         public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lp);
         [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lp);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr hWnd, StringBuilder sb, int max);
@@ -1788,6 +1792,21 @@ namespace HDRToggle
                 _mockTimer.Start();
             }
             else RefreshData();
+            // 粘性置顶：浏览器等窗口带残留置顶标志/前台提升时会盖住侧边栏，
+            // 每 2 秒重新声明一次 TOPMOST（不移动不激活），被盖后最多 2 秒自动浮回
+            new WindowInteropHelper(this).EnsureHandle();
+            DispatcherTimer sticky = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            sticky.Tick += delegate
+            {
+                try
+                {
+                    IntPtr h = new WindowInteropHelper(this).Handle;
+                    SetWindowPos(h, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
+                }
+                catch { }
+            };
+            sticky.Start();
+
             // 帧动画：15ms 轮询秒表，帧序号按绝对时间换算（30fps 素材恰好每 33.3ms 一帧）
             // 注意不能用 CompositionTarget.Rendering——窗口静止时 WPF 不渲染，事件不触发，动画会冻结
             _animClock = System.Diagnostics.Stopwatch.StartNew();
