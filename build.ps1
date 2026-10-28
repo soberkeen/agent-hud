@@ -27,17 +27,23 @@ $iconDfy = Join-Path $PSScriptRoot 'icon-dafeiyu.png'
 $iconZc  = Join-Path $PSScriptRoot 'icon-zcode.png'
 $resDfy  = '-res:{0},Icon.Dafeiyu.png' -f $iconDfy
 $resZc   = '-res:{0},Icon.Zcode.png'   -f $iconZc
-# 动画精灵图 anim-df-normal.png -> anim.df.normal.png
-$resAnim = @()
+# 动画精灵图不再内嵌主程序（外置 assets 文件夹）；安装器以 Asset. 前缀内嵌并在安装时释放
+$resAssets = @()
 Get-ChildItem $PSScriptRoot -Filter 'anim-*.png' | ForEach-Object {
-    $resAnim += ('-res:{0},anim.{1}.png' -f $_.FullName, (($_.BaseName -replace '^anim-','') -replace '-','.'))
+    $resAssets += ('-res:{0},Asset.{1}' -f $_.FullName, $_.Name)
+}
+Get-ChildItem $PSScriptRoot -Filter 'icon-*.png' | ForEach-Object {
+    $resAssets += ('-res:{0},Asset.{1}' -f $_.FullName, $_.Name)
+}
+Get-ChildItem $PSScriptRoot -Filter 'anim-*.gif' | ForEach-Object {
+    $resAssets += ('-res:{0},Asset.{1}' -f $_.FullName, $_.Name)
 }
 & $csc -nologo -target:winexe -out:$appExe -win32icon:$icon -win32manifest:$manifest `
     -r:"$wpf\PresentationFramework.dll" -r:"$wpf\PresentationCore.dll" `
     -r:"$wpf\WindowsBase.dll" -r:"$framework\System.Xaml.dll" `
     -r:"$framework\System.Web.Extensions.dll" `
     -r:"$framework\System.Windows.Forms.dll" -r:"$framework\System.Drawing.dll" `
-    $resDfy $resZc $resAnim $src
+    $resDfy $resZc $src
     if ($LASTEXITCODE -ne 0) { throw "hdr-toggle.exe 编译失败 (exit $LASTEXITCODE)" }
 }
 
@@ -46,7 +52,7 @@ $resArg = '-res:{0},HDR.Toggle.app.exe' -f $appExe
 & $csc -nologo -target:winexe -out:$setupExe -win32icon:$icon -win32manifest:$setupManifest `
     -r:"$framework\Microsoft.CSharp.dll" -r:"$framework\System.dll" `
     -r:"$framework\System.Windows.Forms.dll" -r:"$framework\System.Drawing.dll" `
-    $resArg $setupSrc
+    $resArg $resAssets $setupSrc
 if ($LASTEXITCODE -ne 0) { throw "安装器编译失败 (exit $LASTEXITCODE)" }
 
 Get-Item $appExe, $setupExe | ForEach-Object { '{0}  {1:N0} KB' -f $_.Name, ($_.Length / 1KB) }
