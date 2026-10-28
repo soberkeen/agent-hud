@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-# 精灵图流水线 v2：自动寻找无缝循环窗口（正向播放，不用倒放）
-#   1) 全帧降采样算帧差，搜索首尾差异最小的 (起点, K=12帧) 窗口
-#   2) 只在窗口内抽 12 帧 -> 洪泛抠白底 -> 联合包围盒 -> 96px 横向拼接
+# 精灵图流水线 v3：分策略循环窗口搜索
+#   calm  模式（标准待机）：找接缝差最小的窗口（越稳越好）
+#   action模式（紧张/痴呆）：接缝差可接受(<25/255)的窗口里挑动作最大的（越活越好）
+#   窗口长度按视频帧率自适应 0.5~1.7 秒，播放速度接近实时
 import os, sys
 import imageio
 import numpy as np
@@ -12,12 +13,12 @@ D = r"C:\Users\sober\Downloads"
 OUT = os.path.dirname(os.path.abspath(__file__)).replace("\\tools", "")
 SIZE, FRAMES = 96, 12
 JOBS = [
-    ("大肥鱼-标准.mp4", "anim-df-normal.png"),
-    ("大肥鱼-紧张.mp4", "anim-df-worry.png"),
-    ("大肥鱼-呆滞.mp4", "anim-df-daze.png"),
-    ("GLM-标准.mp4", "anim-zc-normal.png"),
-    ("GLM-新慌张.mp4", "anim-zc-worry.png"),
-    ("GLM-呆滞.mp4", "anim-zc-daze.png"),
+    ("大肥鱼-标准.mp4", "anim-df-normal.png", "calm"),
+    ("大肥鱼-紧张.mp4", "anim-df-worry.png", "action"),
+    ("大肥鱼-呆滞.mp4", "anim-df-daze.png", "action"),
+    ("GLM-标准.mp4", "anim-zc-normal.png", "calm"),
+    ("GLM-新慌张.mp4", "anim-zc-worry.png", "action"),
+    ("GLM-呆滞.mp4", "anim-zc-daze.png", "action"),
 ]
 
 def key_white(img):
@@ -44,9 +45,9 @@ def bbox_of(rgba):
     if len(xs) == 0: return None
     return xs.min(), ys.min(), xs.max(), ys.max()
 
-def find_loop(mp4):
-    """全帧降采样灰度化，找首尾差异最小的 K 帧窗口"""
+def find_loop(mp4, mode):
     r = imageio.get_reader(os.path.join(D, mp4))
+    fps = float(r.get_meta_data().get("fps") or 24)
     grays = []
     for f in r:
         g = Image.fromarray(f).convert("L").resize((160, 160), Image.BILINEAR)
@@ -54,21 +55,40 @@ def find_loop(mp4):
     r.close()
     n = len(grays)
     G = np.stack(grays)
-    best = (1e9, 0, 12)
-    for K in range(12, 31):                      # 0.5~1.25 秒 @24fps
+    # 窗口长度自适应帧率：0.5~1.7 秒
+    klo = max(8, int(fps * 0.8))
+    khi = min(n - 2, max(klo + 1, int(fps * 1.5)))
+    motion = np.abs(G[1:n] - G[0:n - 1]).mean(axis=(1, 2))   # 每帧运动量
+    best = None
+    for K in range(klo, khi + 1):
         d = np.abs(G[0:n - K] - G[K:n]).mean(axis=(1, 2))
-        s = int(d.argmin())
-        if d[s] < best[0]:
-            best = (float(d[s]), s, K)
-    _, s, K = best
+        mov = np.convolve(motion, np.ones(K) / K, mode="valid")   # 窗口平均运动量
+        if mode == "calm":
+            s = int(d.argmin())
+            cand = (float(d[s]), float(mov[s]), s, K)
+            if best is None or cand[0] < best[0]:
+                best = cand + ("calm",)
+        else:
+            ok = d < 25                                   # 接缝可接受才参与
+            if ok.any():
+                idx = np.where(ok)[0]
+                s = int(idx[mov[idx].argmax()])
+                cand = (float(d[s]), float(mov[s]), s, K)
+                if best is None or cand[1] > best[1]:
+                    best = cand + ("action",)
+    if best is None:
+        s, K = int((n - 1) * 0.4), klo
+        best = (0.0, 0.0, s, K, "fallback")
+    seam, mov, s, K, used = best
     idxs = [round(s + i * (K - 1) / (FRAMES - 1)) for i in range(FRAMES)]
-    seam = float(np.abs(G[idxs[0]] - G[idxs[-1]]).mean())
-    print("  loop: start=%d K=%d 帧间差=%.2f 接缝差=%.2f (n=%d)" % (s, K, best[0], seam, n))
-    return idxs, seam
+    seamf = float(np.abs(G[idxs[0]] - G[idxs[-1]]).mean())
+    print("  loop[%s]: start=%d K=%d(%.2fs) 接缝=%.2f 运动=%.2f (n=%d fps=%.0f)" %
+          (used, s, K, K / fps, seamf, mov, n, fps))
+    return idxs, seamf
 
-def process(mp4, out_name):
+def process(mp4, out_name, mode):
     print(out_name)
-    idxs, seam = find_loop(mp4)
+    idxs, seam = find_loop(mp4, mode)
     want = set(idxs)
     frames = []
     r = imageio.get_reader(os.path.join(D, mp4))
@@ -99,11 +119,7 @@ def process(mp4, out_name):
     for i, t in enumerate(tiles): sheet.paste(t, (i * SIZE, 0))
     sheet.save(os.path.join(OUT, out_name))
     print("  -> %s (%dx%d)" % (out_name, cw, ch))
-    return seam
 
-seams = {}
-for mp4, out in JOBS:
-    seams[out] = process(mp4, out)
-print("接缝差汇总（越小越无缝）:")
-for k, v in seams.items():
-    print("  %-24s %.2f" % (k, v))
+for mp4, out, mode in JOBS:
+    process(mp4, out, mode)
+print("done")

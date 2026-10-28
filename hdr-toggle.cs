@@ -1694,7 +1694,7 @@ namespace HDRToggle
                 _mockTimer.Start();
             }
             else RefreshData();
-            _animTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+            _animTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(85) };   // 12.5fps，循环窗约 1 秒 = 实时速度
             _animTimer.Tick += delegate
             {
                 _animIdx = (_animIdx + 1) % Seq.Length;
