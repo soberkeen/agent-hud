@@ -794,6 +794,7 @@ namespace HDRToggle
                     if (cmd == "popup:ds" || cmd == "popup:zc") return RunGui(false, cmd.Substring(6));
                     if (cmd == "settings") return RunGui(true, null);
                     if (cmd == "mockcycle") return RunGui(false, null, true);
+                    if (cmd == "hover:ds" || cmd == "hover:zc") return RunGui(false, null, false, cmd.Substring(6));
                     return RunCli(cmd);
                 }
                 return RunGui(false, null);
@@ -879,7 +880,7 @@ namespace HDRToggle
             catch { }
         }
 
-        static int RunGui(bool openSettings, string popupDebug, bool mockCycle = false)
+        static int RunGui(bool openSettings, string popupDebug, bool mockCycle = false, string hoverDebug = null)
         {
             _mutex = new Mutex(false, "Local\\HdrToggleWidget");   // 单实例
             bool owned;
@@ -899,6 +900,7 @@ namespace HDRToggle
             Widget w = new Widget(showEvent);
             w.MockCycle = mockCycle;
             w.Show();
+            if (hoverDebug != null) w.DebugHover(hoverDebug);
             if (openSettings) w.OpenSettings();
             if (popupDebug != null) w.DebugPopup(popupDebug);
             w.Start();          // v1.3 起漏掉过这行：轮询/数据刷新定时器全靠它
@@ -1003,6 +1005,7 @@ namespace HDRToggle
             });
             dsTestRow.Children.Add(btnDs);
             s3.Children.Add(dsTestRow);
+            _txtDsBase = AddText(s3, "接口地址（默认 https://api.deepseek.com）", _cfg["deepseek_base"]);
 
             StackPanel s3b = Section(root, "数据源 · ZCode");
             _txtZcBase = AddText(s3b, "接口地址（留空=自动跟随本机 ZCode 登录）", _cfg["zcode_base"]);
@@ -1402,6 +1405,7 @@ namespace HDRToggle
             _dsRow.ToolTip = "DeepSeek 余额（悬停展开，点击固定/收起）";
             stack.Children.Add(_dsRow);
             if (!showDs) _dsRow.Visibility = Visibility.Collapsed;
+            _dsSlide = new TranslateTransform();
             _dsDrawerContent = new StackPanel { RenderTransform = _dsSlide, Opacity = 0 };
             _dsBalanceText = new TextBlock
             {
@@ -1815,6 +1819,30 @@ namespace HDRToggle
         }
 
         // 布局调试：-popup:ds|zc 启动即固定展开对应抽屉
+        private static void Dbg(string msg)
+        {
+            try { System.IO.File.AppendAllText(Path.Combine(SettingsData.ExeDir, "anim-err.log"), msg + Environment.NewLine); } catch { }
+        }
+
+        // 调试：程序化触发 MouseEnter（复现 HoverDrawer→AnimateDrawer 路径）
+        public void DebugHover(string section)
+        {
+            Dispatcher.CurrentDispatcher.BeginInvoke((Action)delegate
+            {
+                Grid row = section == "ds" ? _dsRow : _zcRow;
+                try
+                {
+                    Dbg("DebugHover raise " + section);
+                    row.RaiseEvent(new MouseEventArgs(System.Windows.Input.Mouse.PrimaryDevice, Environment.TickCount)
+                    {
+                        RoutedEvent = Mouse.MouseEnterEvent
+                    });
+                    Dbg("DebugHover raised ok");
+                }
+                catch (Exception ex) { Dbg("hover ERR " + ex); }
+            }, DispatcherPriority.ApplicationIdle);
+        }
+
         // 布局调试：-popup:ds|zc 启动即固定展开对应抽屉
         public void DebugPopup(string section)
         {
