@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
-# 精灵图流水线 v6：以「接缝/动作 比」为核心的循环窗口搜索
-#   直接在 96px 成品尺度上评估每个候选窗口的接缝差与动作差，
-#   calm 选 比值最小 且 有动作；action 在接缝可接受里选动作最大。
-#   窗口上限放宽到 88 帧（~1.5 秒@59fps）以覆盖真实周期。
+# 精灵图流水线 v7（最终版）：
+#   循环窗口搜索(同v6) -> scipy 洪泛抠底(毫秒级) -> 时域降噪 ->
+#   窗口重采样为固定 90 帧(带小数线性插值, 步长均匀) -> 交叉溶合兜底 -> 96px 横向拼接
+#   播放固定 30fps（60Hz 屏幕恰好每 2 刷新一帧，节拍数学均匀）—— 3 秒循环
 import os, sys
 import imageio
 import numpy as np
 from PIL import Image
-from collections import deque
+from scipy import ndimage
 
 D = r"C:\Users\sober\Downloads"
 OUT = os.path.dirname(os.path.abspath(__file__)).replace("\\tools", "")
-SIZE = 96
+SIZE, N_OUT = 96, 90
 MAX_FRAMES = 160
 JOBS = [
     ("大肥鱼-标准.mp4", "anim-df-normal.png", "calm"),
@@ -24,22 +24,16 @@ JOBS = [
 
 def key_white(img):
     h, w = img.shape[:2]
-    alpha = np.full((h, w), 255, dtype=np.uint8)
     mn = img.min(axis=2); mx = img.max(axis=2)
     bg = (mn > 224) & ((mx - mn) < 30)
-    q = deque()
-    for x in range(w):
-        for y in (0, h - 1):
-            if bg[y, x] and alpha[y, x]: alpha[y, x] = 0; q.append((y, x))
-    for y in range(h):
-        for x in (0, w - 1):
-            if bg[y, x] and alpha[y, x]: alpha[y, x] = 0; q.append((y, x))
-    while q:
-        y, x = q.popleft()
-        for ny, nx in ((y + 1, x), (y - 1, x), (y, x + 1), (y, x - 1)):
-            if 0 <= ny < h and 0 <= nx < w and alpha[ny, nx] and bg[ny, nx]:
-                alpha[ny, nx] = 0; q.append((ny, nx))
-    return np.dstack([img, alpha])
+    lbl, _ = ndimage.label(bg)
+    border = set(lbl[0, :]) | set(lbl[-1, :]) | set(lbl[:, 0]) | set(lbl[:, -1])
+    border.discard(0)
+    mask = np.isin(lbl, list(border))
+    out = img.copy()
+    out[mask] = 0
+    alpha = np.where(mask, 0, 255).astype(np.uint8)
+    return np.dstack([out, alpha])
 
 def temporal_smooth(frames):
     out = []
@@ -51,27 +45,37 @@ def temporal_smooth(frames):
         out.append(np.clip(0.25 * a + 0.5 * b + 0.25 * c, 0, 255).astype(np.uint8))
     return out
 
-def to96(rgb):
-    return np.asarray(Image.fromarray(rgb).resize((SIZE, SIZE), Image.BILINEAR), dtype=np.float32)
+def resample(frames, n_out):
+    """带小数位置的线性插值重采样：源帧距不均(VFR)也被抹平"""
+    n = len(frames)
+    arr = [f.astype(np.float32) for f in frames]
+    out = []
+    for i in range(n_out):
+        pos = i * (n - 1) / (n_out - 1) if n_out > 1 else 0
+        j = int(pos); w = pos - j
+        k = min(j + 1, n - 1)
+        out.append(np.clip(arr[j] * (1 - w) + arr[k] * w, 0, 255).astype(np.uint8))
+    return out
 
 def bbox_of(rgba):
     ys, xs = np.where(rgba[:, :, 3] > 0)
     if len(xs) == 0: return None
     return xs.min(), ys.min(), xs.max(), ys.max()
 
+def to96(rgb):
+    return np.asarray(Image.fromarray(rgb).resize((SIZE, SIZE), Image.BILINEAR), dtype=np.float32)
+
 def find_loop(F, mode, fps_real):
-    """F: (n,96,96,3) float32 96px 帧。返回 (start,K)"""
     n = len(F)
-    klo = max(8, int(fps_real * 1.0))                          # 循环至少 1 秒
-    khi = min(n - 2, max(klo + 1, int(fps_real * 2.5)), MAX_FRAMES)   # 最长 2.5 秒
+    klo = max(8, int(fps_real * 1.0))
+    khi = min(n - 2, max(klo + 1, int(fps_real * 2.5)), MAX_FRAMES)
     if khi <= klo: klo = khi - 1
-    diff = np.abs(F[1:n] - F[0:n - 1]).mean(axis=(1, 2, 3))     # 每帧运动量(96px)
+    diff = np.abs(F[1:n] - F[0:n - 1]).mean(axis=(1, 2, 3))
     best = None
     for K in range(klo, khi + 1):
-        seam = np.abs(F[0:n - K] - F[K:n]).mean(axis=(1, 2, 3))  # 每个起点的接缝差
+        seam = np.abs(F[0:n - K] - F[K:n]).mean(axis=(1, 2, 3))
         mov = np.convolve(diff, np.ones(K) / K, mode="valid")
         if mode == "calm":
-            # 比值最小 = 接缝相对动作最不显眼；动作太小的不要
             ratio = seam / np.maximum(mov, 1.5)
             ratio[mov < 2.0] = 1e9
             s = int(ratio.argmin())
@@ -79,7 +83,7 @@ def find_loop(F, mode, fps_real):
             if best is None or cand[0] < best[0]:
                 best = cand + (float(seam[s]), float(mov[s]))
         else:
-            ok = seam < 25
+            ok = seam < 35                      # 烘焙溶合能吃掉中等接缝，阈值放宽
             if ok.any():
                 idx = np.where(ok)[0]
                 s = int(idx[mov[idx].argmax()])
@@ -97,7 +101,6 @@ def find_loop(F, mode, fps_real):
 
 def process(mp4, out_name, mode):
     print(out_name)
-    # 读全帧，96px 评分用 + 全帧留源
     r = imageio.get_reader(os.path.join(D, mp4))
     meta = r.get_meta_data()
     dur = float(meta.get("duration") or 4.0)
@@ -110,14 +113,13 @@ def process(mp4, out_name, mode):
     fps_real = max(1.0, n / dur)
     F = np.stack(small)
     s, K, seam, mov = find_loop(F, mode, fps_real)
-    print("  loop: start=%d K=%d(%.2fs) fps=%.1f 接缝=%.1f 动作=%.1f 比=%.2f" %
-          (s, K, K / fps_real, fps_real, seam, mov, seam / max(mov, 0.01)))
-    N = min(K + 1, 88)
-    idxs = [s + round(i * K / (N - 1)) for i in range(N)]   # 窗口内均匀采样（长窗口均匀抽帧）
+    print("  loop: start=%d K=%d(%.2fs) fps=%.1f 接缝=%.1f 动作=%.1f" % (s, K, K / fps_real, fps_real, seam, mov))
+    idxs = list(range(s, s + K + 1))
     frames = []
     for i in idxs:
         frames.append(key_white(full[i]))
     frames = temporal_smooth(frames)
+    frames = resample(frames, N_OUT)
     u = [10**9, 10**9, -1, -1]
     for f in frames:
         b = bbox_of(f)
@@ -136,26 +138,20 @@ def process(mp4, out_name, mode):
         canvas[oy:oy + ch, ox:ox + cw] = crop
         tiles.append(Image.fromarray(canvas).resize((SIZE, SIZE), Image.LANCZOS))
 
-    # 接缝残余过大（>动作）时，尾帧向首帧交叉溶合，把跳变化成 60ms 快速过渡
+    # 接缝残余大于动作时，尾部两帧向首帧交叉溶合（约 66ms 快速过渡）
     f0 = tiles[0]
-    if len(tiles) >= 3 and seam > mov:
+    seam_out = float(np.abs(np.asarray(tiles[0], np.float32) - np.asarray(tiles[-1], np.float32)).mean())
+    mov_out = float(np.abs(np.asarray(tiles[0], np.float32) - np.asarray(tiles[N_OUT // 2], np.float32)).mean())
+    if seam_out > mov_out:
         for k, w in ((-2, 0.35), (-1, 0.7)):
             a = np.asarray(tiles[k], dtype=np.float32)
-            b = np.asarray(f0, dtype=np.float32)
-            tiles[k] = Image.fromarray(np.clip(a * (1 - w) + b * w, 0, 255).astype(np.uint8))
-        print("  (接缝>动作，已烘焙尾部 2 帧交叉溶合)")
+            tiles[k] = Image.fromarray(np.clip(a * (1 - w) + np.asarray(f0, np.float32) * w, 0, 255).astype(np.uint8))
+        print("  (接缝烘焙溶合)")
 
-    sheet = Image.new("RGBA", (SIZE * len(tiles), SIZE), (0, 0, 0, 0))
+    sheet = Image.new("RGBA", (SIZE * N_OUT, SIZE), (0, 0, 0, 0))
     for i, t in enumerate(tiles): sheet.paste(t, (i * SIZE, 0))
     sheet.save(os.path.join(OUT, out_name))
-    print("  -> %s (%dx%d, %d 帧)" % (out_name, cw, ch, len(tiles)))
-
-    # 成品实测：首尾差 vs 中段动作差
-    fa = np.asarray(tiles[0], dtype=np.float64)
-    fl = np.asarray(tiles[-1], dtype=np.float64)
-    fm = np.asarray(tiles[len(tiles) // 2], dtype=np.float64)
-    mask = np.minimum(fa[:, :, 3], fl[:, :, 3]) > 128
-    print("  实测: 首尾差=%.1f 中段动作=%.1f" % (np.abs(fa - fl)[mask].mean(), np.abs(fa - fm)[mask].mean()))
+    print("  -> %s (%dx%d, %d 帧, 33ms/帧) 成品首尾差=%.1f 动作=%.1f" % (out_name, cw, ch, N_OUT, seam_out, mov_out))
 
 for mp4, out, mode in JOBS:
     process(mp4, out, mode)
