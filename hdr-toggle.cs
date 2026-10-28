@@ -909,70 +909,79 @@ namespace HDRToggle
         }
     }
 
-    // ---------- 设置窗口 ----------
+    // ---------- 设置窗口（固定尺寸 + 页签：通用/数据源/关于） ----------
     public class SettingsWindow : Window
     {
         private readonly Widget _host;
         private readonly Dictionary<string, string> _cfg;
         private CheckBox _chkAutostart, _chkTray, _chkHover, _chkShowKey, _chkShowDs, _chkShowZc;
-        private ComboBox _cmbMoodSrc;
-        private ComboBox _cmbRefresh, _cmbLow, _cmbMid;
+        private ComboBox _cmbRefresh, _cmbLow, _cmbMid, _cmbMoodSrc;
         private PasswordBox _pwdKey;
         private TextBox _txtKey, _txtDsBase, _txtZcBase;
         private TextBlock _testResult;
+        private readonly List<Border> _tabBtns = new List<Border>();
+        private readonly List<StackPanel> _tabPages = new List<StackPanel>();
 
         public SettingsWindow(Widget host)
         {
             _host = host;
             _cfg = host.CurrentConfig;
             Title = "HDR 侧边栏 · 设置";
-            Width = 470;
-            SizeToContent = SizeToContent.Height;
+            Width = 480; Height = 470;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             ResizeMode = ResizeMode.NoResize;
             Topmost = true;                    // 侧边栏本身 topmost，设置页跟它平级才不会被盖住
             Background = Ui.Brush(0xFF, 0x1A, 0x1A, 0x1A);
             Icon = TryIcon();
 
-            StackPanel root = new StackPanel { Margin = new Thickness(18) };
+            Grid root = new Grid { Margin = new Thickness(12) };
+            RowDefinition r0 = new RowDefinition(); r0.Height = GridLength.Auto;
+            RowDefinition r1 = new RowDefinition(); r1.Height = new GridLength(1, GridUnitType.Star);
+            RowDefinition r2 = new RowDefinition(); r2.Height = GridLength.Auto;
+            RowDefinition r3 = new RowDefinition(); r3.Height = GridLength.Auto;
+            root.RowDefinitions.Add(r0); root.RowDefinitions.Add(r1);
+            root.RowDefinitions.Add(r2); root.RowDefinitions.Add(r3);
             Content = root;
 
-            TextBlock head = new TextBlock
+            // ---- 页签栏 ----
+            StackPanel bar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 0) };
+            Grid.SetRow(bar, 0);
+            root.Children.Add(bar);
+
+            // ---- 页签内容区 ----
+            Border contentBox = new Border
             {
-                Text = "设置",
-                FontSize = 20,
-                FontWeight = FontWeights.Bold,
-                Foreground = Brushes.White,
-                Margin = new Thickness(0, 0, 0, 12),
+                CornerRadius = new CornerRadius(0, 10, 10, 10),
+                Background = Ui.Brush(0xFF, 0x22, 0x22, 0x22),
+                BorderBrush = Ui.Brush(0x22, 0xFF, 0xFF, 0xFF),
+                BorderThickness = new Thickness(1),
+                ClipToBounds = true,
             };
-            root.Children.Add(head);
+            Grid.SetRow(contentBox, 1);
+            Grid pages = new Grid();
+            contentBox.Child = pages;
+            root.Children.Add(contentBox);
 
-            // ===== 通用 =====
-            StackPanel s1 = Section(root, "通用");
-            _chkAutostart = AddCheck(s1, "开机自动启动侧边栏", SettingsData.GetAutostart());
-            _chkTray = AddCheck(s1, "显示托盘图标（右键托盘可打开设置）", SettingsData.Flag(_cfg, "show_tray"));
-            _chkHover = AddCheck(s1, "悬停图标时弹出详情面板", SettingsData.Flag(_cfg, "hover_details"));
+            // ===== 页签 0：通用 =====
+            StackPanel p0 = new StackPanel { Margin = new Thickness(12), Visibility = Visibility.Visible };
+            pages.Children.Add(p0); _tabPages.Add(p0);
+            AddTab(bar, "通用", 0);
+            _chkAutostart = AddCheck(p0, "开机自动启动侧边栏", SettingsData.GetAutostart());
+            _chkTray = AddCheck(p0, "显示托盘图标（右键托盘可打开设置）", SettingsData.Flag(_cfg, "show_tray"));
+            _chkHover = AddCheck(p0, "悬停图标时弹出详情抽屉", SettingsData.Flag(_cfg, "hover_details"));
+            AddTitle(p0, "GLM 角色与额度分档");
+            _chkShowDs = AddCheck(p0, "显示 DeepSeek 角色（大肥鱼，余额）", SettingsData.Flag(_cfg, "show_ds"));
+            _chkShowZc = AddCheck(p0, "显示 GLM 角色（订阅额度）", SettingsData.Flag(_cfg, "show_zc"));
+            _cmbMoodSrc = AddCombo(p0, "GLM 表情由哪个额度驱动", new string[] { "five", "week", "worst" }, _cfg["zc_mood_source"]);
+            AddHint(p0, "five=5小时额度（推荐） / week=本周 / worst=两者取更差");
+            AddThresholds(p0, _cfg["warn_low"], _cfg["warn_mid"]);
 
-            StackPanel s1b = Section(root, "显示角色");
-            _chkShowDs = AddCheck(s1b, "DeepSeek 角色（大肥鱼，显示 API 余额）", SettingsData.Flag(_cfg, "show_ds"));
-            _chkShowZc = AddCheck(s1b, "GLM 角色（显示订阅额度）", SettingsData.Flag(_cfg, "show_zc"));
-            _cmbMoodSrc = AddCombo(s1b, "GLM 表情由哪个额度驱动", new string[] { "five", "week", "worst" }, _cfg["zc_mood_source"]);
-            TextBlock moodHint = new TextBlock
-            {
-                FontSize = 11.5,
-                Foreground = Ui.Brush(0x88, 0xFF, 0xFF, 0xFF),
-                Text = "five=5小时额度（推荐） / week=本周额度 / worst=两者取更差",
-                Margin = new Thickness(0, 2, 0, 0),
-            };
-            s1b.Children.Add(moodHint);
+            // ===== 页签 1：数据源 =====
+            StackPanel p1 = new StackPanel { Margin = new Thickness(12), Visibility = Visibility.Collapsed };
+            pages.Children.Add(p1); _tabPages.Add(p1);
+            AddTab(bar, "数据源", 1);
 
-            // ===== 显示 =====
-            StackPanel s2 = Section(root, "显示");
-            _cmbLow = AddCombo(s2, "额度「见底」阈值（剩余低于此百分比显示红色）", new string[] { "5", "10", "15", "20", "25", "30" }, _cfg["warn_low"]);
-            _cmbMid = AddCombo(s2, "额度「中等」阈值（低于此显示黄色）", new string[] { "30", "40", "50", "60", "70" }, _cfg["warn_mid"]);
-
-            // ===== 数据源 =====
-            StackPanel s3 = Section(root, "数据源 · DeepSeek");
+            AddLabel(p1, "DeepSeek API Key（platform.deepseek.com 创建）");
             StackPanel keyRow = new StackPanel { Orientation = Orientation.Horizontal };
             _pwdKey = new PasswordBox { Width = 250, FontSize = 12, Background = FieldBrush(), Foreground = Brushes.White, BorderBrush = Ui.Brush(0x44, 0xFF, 0xFF, 0xFF), Padding = new Thickness(6, 4, 6, 4) };
             _pwdKey.Password = _cfg["deepseek_key"];
@@ -987,7 +996,7 @@ namespace HDRToggle
                 else { _pwdKey.Password = _txtKey.Text; _pwdKey.Visibility = Visibility.Visible; _txtKey.Visibility = Visibility.Collapsed; }
             };
             keyRow.Children.Add(_chkShowKey);
-            AddLabeled(s3, "API Key（platform.deepseek.com 创建）", keyRow);
+            p1.Children.Add(keyRow);
             StackPanel dsTestRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
             Button btnDs = DarkButton("测试连接", delegate
             {
@@ -1004,12 +1013,18 @@ namespace HDRToggle
                 });
             });
             dsTestRow.Children.Add(btnDs);
-            s3.Children.Add(dsTestRow);
-            _txtDsBase = AddText(s3, "接口地址（默认 https://api.deepseek.com）", _cfg["deepseek_base"]);
+            p1.Children.Add(dsTestRow);
+            _txtDsBase = AddText(p1, "接口地址（默认 https://api.deepseek.com）", _cfg["deepseek_base"]);
 
-            StackPanel s3b = Section(root, "数据源 · ZCode");
-            _txtZcBase = AddText(s3b, "接口地址（留空=自动跟随本机 ZCode 登录）", _cfg["zcode_base"]);
-            StackPanel zcTestRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+            AddLabel(p1, "ZCode 接口地址（留空=自动跟随本机 ZCode 登录）");
+            StackPanel zcRow = new StackPanel { Orientation = Orientation.Horizontal };
+            _txtZcBase = new TextBox
+            {
+                Width = 250, FontSize = 12, Background = FieldBrush(), Foreground = Brushes.White,
+                BorderBrush = Ui.Brush(0x44, 0xFF, 0xFF, 0xFF), Padding = new Thickness(6, 4, 6, 4),
+                Text = _cfg["zcode_base"], HorizontalAlignment = HorizontalAlignment.Left,
+            };
+            zcRow.Children.Add(_txtZcBase);
             Button btnZc = DarkButton("测试连接", delegate
             {
                 _testResult.Text = "ZCode: 查询中…";
@@ -1026,38 +1041,44 @@ namespace HDRToggle
                     });
                 });
             });
-            zcTestRow.Children.Add(btnZc);
-            s3b.Children.Add(zcTestRow);
+            btnZc.Margin = new Thickness(8, 0, 0, 0);
+            zcRow.Children.Add(btnZc);
+            p1.Children.Add(zcRow);
 
-            StackPanel s3c = Section(root, "刷新");
-            _cmbRefresh = AddCombo(s3c, "数据刷新间隔（余额与额度）", new string[] { "1", "2", "5", "10", "15", "30" }, _cfg["refresh_minutes"], " 分钟");
+            _cmbRefresh = AddCombo(p1, "数据刷新间隔（余额与额度）", new string[] { "1", "2", "5", "10", "15", "30" }, _cfg["refresh_minutes"], " 分钟");
 
+            // ===== 页签 2：关于 =====
+            StackPanel p2 = new StackPanel { Margin = new Thickness(12), Visibility = Visibility.Collapsed };
+            pages.Children.Add(p2); _tabPages.Add(p2);
+            AddTab(bar, "关于", 2);
+            TextBlock about = new TextBlock
+            {
+                FontSize = 12,
+                Foreground = Ui.Brush(0x99, 0xFF, 0xFF, 0xFF),
+                Text = "HDR 侧边栏 v1.8 · HDR 开关 + DeepSeek 余额 + ZCode 订阅用量",
+            };
+            p2.Children.Add(about);
+            Button repo = DarkButton("GitHub 仓库", delegate { Ui.OpenUrl("https://github.com/soberkeen/hdr-toggle"); });
+            repo.HorizontalAlignment = HorizontalAlignment.Left;
+            repo.Margin = new Thickness(0, 8, 0, 0);
+            p2.Children.Add(repo);
+
+            // ---- 测试结果（常驻底部） ----
             _testResult = new TextBlock
             {
                 FontSize = 12,
                 Foreground = Ui.Brush(0xCC, 0x7C, 0xFC, 0x9E),
                 TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 8, 0, 0),
+                Margin = new Thickness(2, 6, 2, 4),
                 Text = "",
+                MaxHeight = 34,
             };
+            Grid.SetRow(_testResult, 2);
             root.Children.Add(_testResult);
 
-            // ===== 关于 =====
-            StackPanel s4 = Section(root, "关于");
-            TextBlock about = new TextBlock
-            {
-                FontSize = 12,
-                Foreground = Ui.Brush(0x99, 0xFF, 0xFF, 0xFF),
-                Text = "HDR 侧边栏 v1.3 · HDR 开关 + DeepSeek 余额 + ZCode 订阅用量",
-            };
-            s4.Children.Add(about);
-            Button repo = DarkButton("GitHub 仓库", delegate { Ui.OpenUrl("https://github.com/soberkeen/hdr-toggle"); });
-            repo.HorizontalAlignment = HorizontalAlignment.Left;
-            repo.Margin = new Thickness(0, 6, 0, 0);
-            s4.Children.Add(repo);
-
-            // ===== 保存/取消 =====
-            StackPanel btns = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
+            // ---- 保存/取消 ----
+            StackPanel btns = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+            Grid.SetRow(btns, 3);
             Button save = DarkButton("保存", delegate { SaveAndClose(); });
             save.Background = Ui.Brush(0xFF, 0x17, 0x7B, 0x4D);
             save.BorderBrush = Ui.Brush(0xFF, 0x22, 0x99, 0x66);
@@ -1066,6 +1087,44 @@ namespace HDRToggle
             btns.Children.Add(save);
             btns.Children.Add(cancel);
             root.Children.Add(btns);
+
+            SwitchTab(0);
+        }
+
+        // 页签：手动实现的按钮 + 页面切换（比系统 TabControl 好做暗色样式）
+        private void AddTab(StackPanel bar, string label, int index)
+        {
+            Border b = new Border
+            {
+                CornerRadius = new CornerRadius(8, 8, 0, 0),
+                Padding = new Thickness(14, 6, 14, 7),
+                Background = Ui.Brush(0xFF, 0x2A, 0x2A, 0x2A),
+                Margin = new Thickness(0, 0, 4, 0),
+                Cursor = Cursors.Hand,
+            };
+            TextBlock t = new TextBlock
+            {
+                Text = label,
+                FontSize = 13,
+                FontWeight = FontWeights.Bold,
+                Foreground = Ui.Brush(0xFF, 0xAA, 0xAA, 0xAA),
+            };
+            b.Child = t;
+            int i = index;
+            b.MouseLeftButtonDown += delegate { SwitchTab(i); };
+            bar.Children.Add(b);
+            _tabBtns.Add(b);
+        }
+
+        private void SwitchTab(int sel)
+        {
+            for (int k = 0; k < _tabBtns.Count && k < _tabPages.Count; k++)
+            {
+                bool on = k == sel;
+                _tabBtns[k].Background = on ? Ui.Brush(0xFF, 0x1F, 0x6E, 0x47) : Ui.Brush(0xFF, 0x2A, 0x2A, 0x2A);
+                ((TextBlock)_tabBtns[k].Child).Foreground = on ? Brushes.White : Ui.Brush(0xFF, 0xAA, 0xAA, 0xAA);
+                _tabPages[k].Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+            }
         }
 
         private BitmapSource TryIcon()
@@ -1087,26 +1146,23 @@ namespace HDRToggle
 
         private StackPanel Section(StackPanel root, string title)
         {
-            Border box = new Border();
-            box.CornerRadius = new CornerRadius(10);
-            box.Background = Ui.Brush(0xFF, 0x22, 0x22, 0x22);
-            box.BorderBrush = Ui.Brush(0x22, 0xFF, 0xFF, 0xFF);
-            box.BorderThickness = new Thickness(1);
-            box.Padding = new Thickness(14);
-            box.Margin = new Thickness(0, 0, 0, 12);
-            StackPanel sp = new StackPanel();
-            box.Child = sp;
+            StackPanel sp = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
+            AddTitle(sp, title);
+            root.Children.Add(sp);
+            return sp;
+        }
+
+        private void AddTitle(StackPanel sp, string title)
+        {
             TextBlock t = new TextBlock
             {
                 Text = title,
-                FontSize = 14,
+                FontSize = 13,
                 FontWeight = FontWeights.Bold,
                 Foreground = Ui.Brush(0xFF, 0x7C, 0xFC, 0x9E),
-                Margin = new Thickness(0, 0, 0, 8),
+                Margin = new Thickness(0, 0, 0, 6),
             };
             sp.Children.Add(t);
-            root.Children.Add(box);
-            return sp;
         }
 
         private CheckBox AddCheck(StackPanel sp, string label, bool isChecked)
@@ -1117,29 +1173,40 @@ namespace HDRToggle
                 FontSize = 12.5,
                 Foreground = Ui.Brush(0xEE, 0xFF, 0xFF, 0xFF),
                 IsChecked = isChecked,
-                Margin = new Thickness(0, 4, 0, 4),
+                Margin = new Thickness(0, 3, 0, 3),
                 Cursor = Cursors.Hand,
             };
             sp.Children.Add(c);
             return c;
         }
 
-        private TextBlock Label(StackPanel sp, string text)
+        private void AddLabel(StackPanel sp, string text)
         {
             TextBlock t = new TextBlock
             {
                 Text = text,
                 FontSize = 12,
                 Foreground = Ui.Brush(0xAA, 0xFF, 0xFF, 0xFF),
-                Margin = new Thickness(0, 8, 0, 3),
+                Margin = new Thickness(0, 6, 0, 3),
             };
             sp.Children.Add(t);
-            return t;
+        }
+
+        private void AddHint(StackPanel sp, string text)
+        {
+            TextBlock t = new TextBlock
+            {
+                Text = text,
+                FontSize = 11,
+                Foreground = Ui.Brush(0x77, 0xFF, 0xFF, 0xFF),
+                Margin = new Thickness(0, 2, 0, 0),
+            };
+            sp.Children.Add(t);
         }
 
         private ComboBox AddCombo(StackPanel sp, string label, string[] options, string current, string suffix)
         {
-            Label(sp, label);
+            AddLabel(sp, label);
             ComboBox cb = new ComboBox
             {
                 FontSize = 12,
@@ -1161,7 +1228,7 @@ namespace HDRToggle
 
         private TextBox AddText(StackPanel sp, string label, string current)
         {
-            Label(sp, label);
+            AddLabel(sp, label);
             TextBox tb = new TextBox
             {
                 FontSize = 12,
@@ -1173,12 +1240,6 @@ namespace HDRToggle
             };
             sp.Children.Add(tb);
             return tb;
-        }
-
-        private void AddLabeled(StackPanel sp, string label, FrameworkElement control)
-        {
-            Label(sp, label);
-            sp.Children.Add(control);
         }
 
         private Button DarkButton(string label, RoutedEventHandler onClick)
@@ -1195,6 +1256,23 @@ namespace HDRToggle
             };
             b.Click += onClick;
             return b;
+        }
+
+        private void AddThresholds(StackPanel sp, string low, string mid)
+        {
+            AddLabel(sp, "额度变色阈值（剩余百分比：低于红色档显红、低于黄色档显黄）");
+            StackPanel row = new StackPanel { Orientation = Orientation.Horizontal };
+            row.Children.Add(new TextBlock { Text = "见底", FontSize = 12, Foreground = Ui.Brush(0xCC, 0xFF, 0x8B, 0x8B), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
+            _cmbLow = new ComboBox { FontSize = 12, Width = 70, Background = FieldBrush() };
+            foreach (string o in new string[] { "5", "10", "15", "20", "25", "30" }) _cmbLow.Items.Add(o);
+            _cmbLow.SelectedIndex = Math.Max(0, Array.IndexOf(new string[] { "5", "10", "15", "20", "25", "30" }, low));
+            row.Children.Add(_cmbLow);
+            row.Children.Add(new TextBlock { Text = "  中等", FontSize = 12, Foreground = Ui.Brush(0xCC, 0xFF, 0xD2, 0x4A), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
+            _cmbMid = new ComboBox { FontSize = 12, Width = 70, Background = FieldBrush() };
+            foreach (string o in new string[] { "30", "40", "50", "60", "70" }) _cmbMid.Items.Add(o);
+            _cmbMid.SelectedIndex = Math.Max(0, Array.IndexOf(new string[] { "30", "40", "50", "60", "70" }, mid));
+            row.Children.Add(_cmbMid);
+            sp.Children.Add(row);
         }
 
         private string ComboValue(ComboBox cb, string suffix)
@@ -1232,6 +1310,7 @@ namespace HDRToggle
     }
 
     // ---------- 侧边栏（v1.4：原位抽屉展开 + HDR 双击确认） ----------
+
     public class Widget : Window
     {
         private const double Sliver = 12;   // 半隐藏时保留可见的宽度
