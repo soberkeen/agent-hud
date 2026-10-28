@@ -1363,8 +1363,8 @@ namespace HDRToggle
         private Grid _dsRow, _zcRow;
         private Border _sepTop, _sepMid;
         private FramePlayer _dfPlayer, _zcPlayer;
-        private DispatcherTimer _animTimer;
-        private int _animIdx;
+        private System.Diagnostics.Stopwatch _animClock;
+        private int _animIdx = -1;
         private bool _dfFrozen, _zcFrozen;   // 数据异常时定格，不瞎动
         private int _lastZcMood = -1;        // 额度分档迟滞用，防阈值附近反复横跳
 
@@ -1619,7 +1619,6 @@ namespace HDRToggle
                 _pollTimer.Stop();
                 _dataTimer.Stop();
                 _armTimer.Stop();
-                if (_animTimer != null) _animTimer.Stop();
                 if (_tray != null) { _tray.Visible = false; _tray.Dispose(); }
                 try { File.WriteAllText(PosFile, ((int)Left).ToString() + "," + ((int)Top).ToString()); } catch { }
                 Dispatcher.BeginInvokeShutdown(DispatcherPriority.Background);
@@ -1687,14 +1686,16 @@ namespace HDRToggle
                 _mockTimer.Start();
             }
             else RefreshData();
-            _animTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(17) };   // ~59fps，与素材真实帧率一致
-            _animTimer.Tick += delegate
+            // 帧动画用渲染时钟驱动：按绝对时间取帧序号，节拍零抖动（DispatcherTimer 有 ~15.6ms 粒度）
+            _animClock = System.Diagnostics.Stopwatch.StartNew();
+            CompositionTarget.Rendering += delegate
             {
-                _animIdx++;
-                if (!_dfFrozen) _dfPlayer.SetFrame(_animIdx);   // SetFrame 内部按各表帧数取模
-                if (!_zcFrozen) _zcPlayer.SetFrame(_animIdx);
+                int idx = (int)(_animClock.Elapsed.TotalMilliseconds / 17);
+                if (idx == _animIdx) return;
+                _animIdx = idx;
+                if (!_dfFrozen) _dfPlayer.SetFrame(idx);   // SetFrame 内部按各表帧数取模
+                if (!_zcFrozen) _zcPlayer.SetFrame(idx);
             };
-            _animTimer.Start();
             _pollTimer.Start();
             UpdateDock(false);   // 上次关闭时若贴边，启动即恢复半隐藏
             RefreshData();
