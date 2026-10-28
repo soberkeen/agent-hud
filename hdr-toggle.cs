@@ -721,8 +721,8 @@ namespace HDRToggle
     internal class FramePlayer
     {
         private readonly Image _img = new Image();
-        private readonly string _prefix;      // 资源名前缀，如 "anim.df."
-        private readonly string _fallbackRes; // 精灵图缺失时的静态兜底
+        private readonly string _prefix;      // assets 文件名前缀，如 "anim-df-"
+        private readonly string _fallbackRes; // 全部缺失时的静态兜底（内嵌资源）
         private readonly Dictionary<string, BitmapSource> _cache = new Dictionary<string, BitmapSource>();
         private string _sheet;
         private int _frames = 1;
@@ -753,14 +753,13 @@ namespace HDRToggle
             BitmapSource bmp;
             if (!_cache.TryGetValue(key, out bmp) || bmp == null)
             {
-                try { bmp = Ui.ResImage(_prefix + key + ".png") as BitmapSource; }
+                try { bmp = Assets.Load(_prefix + key + ".png", _fallbackRes); }
                 catch { bmp = null; }
                 _cache[key] = bmp;
             }
             if (bmp == null)
             {
                 _sheet = null;
-                if (_fallbackRes != null) _img.Source = Ui.ResImage(_fallbackRes);   // 静态兜底
                 return;
             }
             _sheet = key;
@@ -775,6 +774,35 @@ namespace HDRToggle
             if (!_cache.TryGetValue(_sheet, out bmp) || bmp == null) return;
             i = ((i % _frames) + _frames) % _frames;   // 循环取帧
             _img.Source = new CroppedBitmap(bmp, new Int32Rect(i * FrameW, 0, FrameW, FrameH));
+        }
+    }
+
+    internal static class Assets
+    {
+        public static string Dir()
+        {
+            return Path.Combine(SettingsData.ExeDir, "assets");
+        }
+
+        // 优先加载 assets 文件夹里的文件，缺失则回退内嵌资源（静态兜底）
+        public static BitmapSource Load(string fileName, string embeddedFallback)
+        {
+            try
+            {
+                string p = Path.Combine(Dir(), fileName);
+                if (File.Exists(p))
+                {
+                    BitmapImage bmp = new BitmapImage();
+                    bmp.BeginInit();
+                    bmp.CacheOption = BitmapCacheOption.OnLoad;
+                    bmp.UriSource = new Uri(p);
+                    bmp.EndInit();
+                    bmp.Freeze();
+                    return bmp;
+                }
+            }
+            catch { }
+            return string.IsNullOrEmpty(embeddedFallback) ? null : Ui.ResImage(embeddedFallback) as BitmapSource;
         }
     }
 
@@ -1466,7 +1494,7 @@ namespace HDRToggle
             // ---- DeepSeek 行 + 抽屉（show_ds=false 则整行不创建） ----
             bool showDs = SettingsData.Flag(_cfg, "show_ds");
             _dsRow = IconRow("ds");
-            _dfPlayer = new FramePlayer("anim.df.", 74, "Icon.Dafeiyu.png");
+            _dfPlayer = new FramePlayer("anim-df-", 74, "Icon.Dafeiyu.png");
             _dsDot = StatusDot(10);
             _dsDot.Margin = new Thickness(0, 0, 8, 4);
             _dsDot.HorizontalAlignment = HorizontalAlignment.Right;
@@ -1500,7 +1528,7 @@ namespace HDRToggle
             // ---- ZCode 行 + 抽屉（show_zc=false 则整行不创建） ----
             bool showZc = SettingsData.Flag(_cfg, "show_zc");
             _zcRow = IconRow("zc");
-            _zcPlayer = new FramePlayer("anim.zc.", 74, "Icon.Zcode.png");
+            _zcPlayer = new FramePlayer("anim-zc-", 74, "Icon.Zcode.png");
             _zcFiveDot = StatusDot(9);
             _zcWeekDot = StatusDot(9);
             _zcFiveDot.ToolTip = "5 小时额度";
@@ -1686,16 +1714,20 @@ namespace HDRToggle
                 _mockTimer.Start();
             }
             else RefreshData();
-            // 帧动画用渲染时钟驱动：按绝对时间取帧序号，节拍零抖动（DispatcherTimer 有 ~15.6ms 粒度）
+            // 帧动画：15ms 轮询秒表，帧序号按绝对时间换算（30fps 素材恰好每 33.3ms 一帧）
+            // 注意不能用 CompositionTarget.Rendering——窗口静止时 WPF 不渲染，事件不触发，动画会冻结
             _animClock = System.Diagnostics.Stopwatch.StartNew();
-            CompositionTarget.Rendering += delegate
+            DispatcherTimer animClock = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(15) };
+            animClock.Tick += delegate
             {
                 int idx = (int)(_animClock.Elapsed.TotalMilliseconds / 33.3);   // 30fps：60Hz 屏每 2 刷新一帧，节拍均匀
                 if (idx == _animIdx) return;
                 _animIdx = idx;
                 if (!_dfFrozen) _dfPlayer.SetFrame(idx);   // SetFrame 内部按各表帧数取模
                 if (!_zcFrozen) _zcPlayer.SetFrame(idx);
+
             };
+            animClock.Start();
             _pollTimer.Start();
             UpdateDock(false);   // 上次关闭时若贴边，启动即恢复半隐藏
             RefreshData();
