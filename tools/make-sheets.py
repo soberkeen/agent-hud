@@ -12,7 +12,7 @@ from collections import deque
 D = r"C:\Users\sober\Downloads"
 OUT = os.path.dirname(os.path.abspath(__file__)).replace("\\tools", "")
 SIZE = 96
-MAX_FRAMES = 88
+MAX_FRAMES = 160
 JOBS = [
     ("大肥鱼-标准.mp4", "anim-df-normal.png", "calm"),
     ("大肥鱼-紧张.mp4", "anim-df-worry.png", "action"),
@@ -62,8 +62,8 @@ def bbox_of(rgba):
 def find_loop(F, mode, fps_real):
     """F: (n,96,96,3) float32 96px 帧。返回 (start,K)"""
     n = len(F)
-    klo = max(8, int(fps_real * 0.5))
-    khi = min(n - 2, max(klo + 1, int(fps_real * 1.5)), MAX_FRAMES)
+    klo = max(8, int(fps_real * 1.0))                          # 循环至少 1 秒
+    khi = min(n - 2, max(klo + 1, int(fps_real * 2.5)), MAX_FRAMES)   # 最长 2.5 秒
     if khi <= klo: klo = khi - 1
     diff = np.abs(F[1:n] - F[0:n - 1]).mean(axis=(1, 2, 3))     # 每帧运动量(96px)
     best = None
@@ -112,7 +112,8 @@ def process(mp4, out_name, mode):
     s, K, seam, mov = find_loop(F, mode, fps_real)
     print("  loop: start=%d K=%d(%.2fs) fps=%.1f 接缝=%.1f 动作=%.1f 比=%.2f" %
           (s, K, K / fps_real, fps_real, seam, mov, seam / max(mov, 0.01)))
-    idxs = list(range(s, s + K + 1))
+    N = min(K + 1, 88)
+    idxs = [s + round(i * K / (N - 1)) for i in range(N)]   # 窗口内均匀采样（长窗口均匀抽帧）
     frames = []
     for i in idxs:
         frames.append(key_white(full[i]))
