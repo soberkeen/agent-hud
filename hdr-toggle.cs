@@ -726,6 +726,10 @@ namespace HDRToggle
         private readonly Dictionary<string, BitmapSource> _cache = new Dictionary<string, BitmapSource>();
         private string _sheet;
         private int _frames = 1;
+        private BitmapSource[] _frameArr;     // GIF 模式：独立帧
+        private int[] _delays;                // GIF 模式：每帧延时 ms
+        private bool _sheetMode = true;       // true=PNG 精灵图裁切 / false=独立帧数组
+        private int _loopMs;                  // GIF 模式：整圈毫秒
         private const int FrameW = 96, FrameH = 96;
 
         private readonly TranslateTransform _shift = new TranslateTransform();
@@ -747,29 +751,99 @@ namespace HDRToggle
         // 紧张档发抖：小幅水平位移
         public void ShiftX(double x) { _shift.X = x; }
 
+        private string _lastKey;
+
         public void SetSheet(string key)
         {
+            _lastKey = key;
             if (_sheet == key) return;
-            BitmapSource bmp;
-            if (!_cache.TryGetValue(key, out bmp) || bmp == null)
-            {
-                try { bmp = Assets.Load(_prefix + key + ".png", _fallbackRes); }
-                catch { bmp = null; }
-                _cache[key] = bmp;
-            }
-            if (bmp == null)
-            {
-                _sheet = null;
-                return;
-            }
-            _sheet = key;
+            // 1) 用户自制 GIF（assets\anim-XX-<状态>.gif）
+            string gif = Path.Combine(Assets.Dir(), _prefix + key + ".gif");
+            if (LoadGif(gif)) { _sheet = key; SetFrame(0); return; }
+            // 2) PNG 精灵图（流水线产物）
+            BitmapSource bmp = Assets.Load(_prefix + key + ".png", _fallbackRes);
+            if (bmp == null) { _sheet = null; return; }
+            _frameArr = null; _delays = null; _sheetMode = true;
             _frames = Math.Max(1, bmp.PixelWidth / FrameW);
+            _loopMs = _frames * 33;
+            _sheet = key;
             SetFrame(0);
         }
 
+        // 设置保存/素材更换后调用：清缓存重新加载（无需重启）
+        public void Reload()
+        {
+            _cache.Clear();
+            string k = _lastKey;
+            _sheet = null; _lastKey = null;
+            if (k != null) SetSheet(k);
+        }
+
+        private bool LoadGif(string path)
+        {
+            try
+            {
+                if (!File.Exists(path)) return false;
+                GifBitmapDecoder dec = new GifBitmapDecoder(new Uri(path), BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+                if (dec.Frames == null || dec.Frames.Count == 0) return false;
+                List<BitmapSource> fl = new List<BitmapSource>();
+                List<int> dl = new List<int>();
+                foreach (BitmapFrame f in dec.Frames)
+                {
+                    double sc = 96.0 / Math.Max(1, f.PixelWidth);
+                    TransformedBitmap tb = new TransformedBitmap(f.Clone(), new ScaleTransform(sc, sc));
+                    tb.Freeze();
+                    fl.Add(tb);
+                    int ms = 60;
+                    try
+                    {
+                        BitmapMetadata md = f.Metadata as BitmapMetadata;
+                        if (md != null)
+                        {
+                            object d = md.GetQuery("/grctlext/Delay");   // 单位 1/100 秒
+                            if (d != null) ms = Math.Max(20, Math.Min(500, Convert.ToInt32(d) * 10));
+                        }
+                    }
+                    catch { }
+                    dl.Add(ms);
+                }
+                _frameArr = fl.ToArray();
+                _delays = dl.ToArray();
+                _frames = _frameArr.Length;
+                _sheetMode = false;
+                _loopMs = 0;
+                foreach (int x in _delays) _loopMs += x;
+                return _frames > 0;
+            }
+            catch { return false; }
+        }
+
+        // 按绝对时间推进到对应帧（时基由 Widget 的秒表提供）
+        public void Advance(int elapsedMs)
+        {
+            if (_sheetMode) { SetFrame(elapsedMs / 33); return; }          // 精灵图 30fps
+            if (_loopMs <= 0) return;
+            int t = ((elapsedMs % _loopMs) + _loopMs) % _loopMs;
+            int acc = 0;
+            for (int i = 0; i < _delays.Length; i++)
+            {
+                acc += _delays[i];
+                if (t < acc) { ShowFrameArr(i); return; }
+            }
+            ShowFrameArr(_delays.Length - 1);
+        }
+
+        private void ShowFrameArr(int i)
+        {
+            if (_frameArr == null || _frameArr.Length == 0) return;
+            i = Math.Max(0, Math.Min(_frameArr.Length - 1, i));
+            if (i != _lastShownArr) { _lastShownArr = i; _img.Source = _frameArr[i]; }
+        }
+        private int _lastShownArr = -1;
+
         public void SetFrame(int i)
         {
-            if (_sheet == null || _frames <= 0) return;
+            if (!_sheetMode || _sheet == null || _frames <= 0) return;
             BitmapSource bmp;
             if (!_cache.TryGetValue(_sheet, out bmp) || bmp == null) return;
             i = ((i % _frames) + _frames) % _frames;   // 循环取帧
@@ -1720,11 +1794,9 @@ namespace HDRToggle
             DispatcherTimer animClock = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(15) };
             animClock.Tick += delegate
             {
-                int idx = (int)(_animClock.Elapsed.TotalMilliseconds / 33.3);   // 30fps：60Hz 屏每 2 刷新一帧，节拍均匀
-                if (idx == _animIdx) return;
-                _animIdx = idx;
-                if (!_dfFrozen) _dfPlayer.SetFrame(idx);   // SetFrame 内部按各表帧数取模
-                if (!_zcFrozen) _zcPlayer.SetFrame(idx);
+                int t = (int)(_animClock.Elapsed.TotalMilliseconds);
+                if (!_dfFrozen) _dfPlayer.Advance(t);   // Advance 内部按各自动画的循环时长取帧
+                if (!_zcFrozen) _zcPlayer.Advance(t);
 
             };
             animClock.Start();
@@ -1790,6 +1862,8 @@ namespace HDRToggle
         {
             _cfg = SettingsData.Load();
             if (_tray != null) _tray.Visible = SettingsData.Flag(_cfg, "show_tray");
+            if (_dfPlayer != null) _dfPlayer.Reload();
+            if (_zcPlayer != null) _zcPlayer.Reload();
             if (_dsRow != null) _dsRow.Visibility = SettingsData.Flag(_cfg, "show_ds") ? Visibility.Visible : Visibility.Collapsed;
             if (_zcRow != null) _zcRow.Visibility = SettingsData.Flag(_cfg, "show_zc") ? Visibility.Visible : Visibility.Collapsed;
             if (_sepMid != null) _sepMid.Visibility = (_dsRow != null && _dsRow.Visibility == Visibility.Visible && _zcRow != null && _zcRow.Visibility == Visibility.Visible) ? Visibility.Visible : Visibility.Collapsed;
