@@ -11,7 +11,7 @@ from collections import deque
 
 D = r"C:\Users\sober\Downloads"
 OUT = os.path.dirname(os.path.abspath(__file__)).replace("\\tools", "")
-SIZE, FRAMES = 96, 12
+SIZE = 96                                 # 帧数动态：窗口内逐帧全采（约 fps*窗口秒数）
 JOBS = [
     ("大肥鱼-标准.mp4", "anim-df-normal.png", "calm"),
     ("大肥鱼-紧张.mp4", "anim-df-worry.png", "action"),
@@ -80,7 +80,7 @@ def find_loop(mp4, mode):
         s, K = int((n - 1) * 0.4), klo
         best = (0.0, 0.0, s, K, "fallback")
     seam, mov, s, K, used = best
-    idxs = [round(s + i * (K - 1) / (FRAMES - 1)) for i in range(FRAMES)]
+    idxs = list(range(s, s + K + 1))      # 窗口内逐帧全采，保证满帧率不跳帧
     seamf = float(np.abs(G[idxs[0]] - G[idxs[-1]]).mean())
     print("  loop[%s]: start=%d K=%d(%.2fs) 接缝=%.2f 运动=%.2f (n=%d fps=%.0f)" %
           (used, s, K, K / fps, seamf, mov, n, fps))
