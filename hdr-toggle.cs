@@ -1370,11 +1370,10 @@ namespace HDRToggle
 
         private static int[] BuildSeq()
         {
-            // 乒乓序列 0..11,10..1：AI 视频首尾接不上也能无缝循环
-            List<int> l = new List<int>();
-            for (int i = 0; i < 12; i++) l.Add(i);
-            for (int i = 10; i >= 1; i--) l.Add(i);
-            return l.ToArray();
+            // 纯正向播放：精灵图流水线已按「首尾最接近」挑循环窗口，无需倒放
+            int[] a = new int[12];
+            for (int i = 0; i < 12; i++) a[i] = i;
+            return a;
         }
         private Grid _dsDrawer, _zcDrawer;
         private StackPanel _dsDrawerContent, _zcDrawerContent;
