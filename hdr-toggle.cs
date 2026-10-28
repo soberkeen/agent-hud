@@ -1690,7 +1690,7 @@ namespace HDRToggle
             _animClock = System.Diagnostics.Stopwatch.StartNew();
             CompositionTarget.Rendering += delegate
             {
-                int idx = (int)(_animClock.Elapsed.TotalMilliseconds / 17);
+                int idx = (int)(_animClock.Elapsed.TotalMilliseconds / 33.3);   // 30fps：60Hz 屏每 2 刷新一帧，节拍均匀
                 if (idx == _animIdx) return;
                 _animIdx = idx;
                 if (!_dfFrozen) _dfPlayer.SetFrame(idx);   // SetFrame 内部按各表帧数取模
