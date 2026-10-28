@@ -184,10 +184,6 @@ namespace HDRToggle
             return s;
         }
 
-        [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
-        private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
-        private const uint SWP_NOSIZE = 0x1, SWP_NOMOVE = 0x2, SWP_NOACTIVATE = 0x10;
-
         public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lp);
         [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lp);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr hWnd, StringBuilder sb, int max);
@@ -1794,13 +1790,13 @@ namespace HDRToggle
             else RefreshData();
             // 粘性置顶：浏览器等窗口带残留置顶标志/前台提升时会盖住侧边栏，
             // 每 2 秒重新声明一次 TOPMOST（不移动不激活），被盖后最多 2 秒自动浮回
-            new WindowInteropHelper(this).EnsureHandle();
+            new System.Windows.Interop.WindowInteropHelper(this).EnsureHandle();
             DispatcherTimer sticky = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
             sticky.Tick += delegate
             {
                 try
                 {
-                    IntPtr h = new WindowInteropHelper(this).Handle;
+                    IntPtr h = new System.Windows.Interop.WindowInteropHelper(this).Handle;
                     SetWindowPos(h, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
                 }
                 catch { }
@@ -2192,6 +2188,10 @@ namespace HDRToggle
         }
 
         private int _dfMoodNow = -1, _zcMoodNow = -1;
+
+        [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
+        private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        private const uint SWP_NOSIZE = 0x1, SWP_NOMOVE = 0x2, SWP_NOACTIVATE = 0x10;
         public bool MockCycle;          // 调试：合成数据轮播三种状态，不联网
         private int _mockMood = -1;
         private DispatcherTimer _mockTimer;
