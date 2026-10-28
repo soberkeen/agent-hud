@@ -14,7 +14,7 @@ JOBS = [
     ("大肥鱼-紧张.mp4", "anim-df-worry.png"),
     ("大肥鱼-呆滞.mp4", "anim-df-daze.png"),
     ("GLM-标准.mp4", "anim-zc-normal.png"),
-    ("GLM-紧张.mp4", "anim-zc-worry.png"),
+    ("GLM-新慌张.mp4", "anim-zc-worry.png"),
     ("GLM-呆滞.mp4", "anim-zc-daze.png"),
 ]
 SIZE = 96
