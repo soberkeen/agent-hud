@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
-# 精灵图流水线 v3：分策略循环窗口搜索
-#   calm  模式（标准待机）：找接缝差最小的窗口（越稳越好）
-#   action模式（紧张/痴呆）：接缝差可接受(<25/255)的窗口里挑动作最大的（越活越好）
-#   窗口长度按视频帧率自适应 0.5~1.7 秒，播放速度接近实时
+# 精灵图流水线 v4：按真实帧率处理（AI 视频多为 ~59fps，此前误按 24fps 导致慢放跳帧）
+#   真实 fps = 解码帧数 / 时长；窗口 0.6~1.0 秒（上限 60 帧）；窗口内满帧率采样
+#   calm 模式找最稳循环 / action 模式在接缝可接受里找动作最大
 import os, sys
 import imageio
 import numpy as np
@@ -11,7 +10,8 @@ from collections import deque
 
 D = r"C:\Users\sober\Downloads"
 OUT = os.path.dirname(os.path.abspath(__file__)).replace("\\tools", "")
-SIZE = 96                                 # 帧数动态：窗口内逐帧全采（约 fps*窗口秒数）
+SIZE = 96
+MAX_FRAMES = 60
 JOBS = [
     ("大肥鱼-标准.mp4", "anim-df-normal.png", "calm"),
     ("大肥鱼-紧张.mp4", "anim-df-worry.png", "action"),
@@ -47,29 +47,31 @@ def bbox_of(rgba):
 
 def find_loop(mp4, mode):
     r = imageio.get_reader(os.path.join(D, mp4))
-    fps = float(r.get_meta_data().get("fps") or 24)
+    meta = r.get_meta_data()
+    dur = float(meta.get("duration") or 4.0)
     grays = []
     for f in r:
         g = Image.fromarray(f).convert("L").resize((160, 160), Image.BILINEAR)
         grays.append(np.asarray(g, dtype=np.float32))
     r.close()
     n = len(grays)
+    fps_real = max(1.0, n / dur)                 # 真实帧率（meta 的 fps 字段不可信）
     G = np.stack(grays)
-    # 窗口长度自适应帧率：0.5~1.7 秒
-    klo = max(8, int(fps * 0.8))
-    khi = min(n - 2, max(klo + 1, int(fps * 1.5)))
-    motion = np.abs(G[1:n] - G[0:n - 1]).mean(axis=(1, 2))   # 每帧运动量
+    klo = max(8, int(fps_real * 0.6))            # 0.6 秒
+    khi = min(n - 2, int(fps_real * 1.0), MAX_FRAMES)   # 1.0 秒，上限 60 帧
+    if khi <= klo: klo = khi - 1
+    motion = np.abs(G[1:n] - G[0:n - 1]).mean(axis=(1, 2))
     best = None
     for K in range(klo, khi + 1):
         d = np.abs(G[0:n - K] - G[K:n]).mean(axis=(1, 2))
-        mov = np.convolve(motion, np.ones(K) / K, mode="valid")   # 窗口平均运动量
+        mov = np.convolve(motion, np.ones(K) / K, mode="valid")
         if mode == "calm":
             s = int(d.argmin())
             cand = (float(d[s]), float(mov[s]), s, K)
             if best is None or cand[0] < best[0]:
                 best = cand + ("calm",)
         else:
-            ok = d < 25                                   # 接缝可接受才参与
+            ok = d < 25
             if ok.any():
                 idx = np.where(ok)[0]
                 s = int(idx[mov[idx].argmax()])
@@ -80,15 +82,15 @@ def find_loop(mp4, mode):
         s, K = int((n - 1) * 0.4), klo
         best = (0.0, 0.0, s, K, "fallback")
     seam, mov, s, K, used = best
-    idxs = list(range(s, s + K + 1))      # 窗口内逐帧全采，保证满帧率不跳帧
+    idxs = list(range(s, s + K + 1))             # 窗口内满帧率采样，不跳帧
     seamf = float(np.abs(G[idxs[0]] - G[idxs[-1]]).mean())
-    print("  loop[%s]: start=%d K=%d(%.2fs) 接缝=%.2f 运动=%.2f (n=%d fps=%.0f)" %
-          (used, s, K, K / fps, seamf, mov, n, fps))
-    return idxs, seamf
+    print("  loop[%s]: start=%d K=%d(%.2fs) 真实fps=%.1f 接缝=%.2f 运动=%.2f (n=%d dur=%.1fs)" %
+          (used, s, K, K / fps_real, fps_real, seamf, mov, n, dur))
+    return idxs, seamf, fps_real
 
 def process(mp4, out_name, mode):
     print(out_name)
-    idxs, seam = find_loop(mp4, mode)
+    idxs, seam, fps_real = find_loop(mp4, mode)
     want = set(idxs)
     frames = []
     r = imageio.get_reader(os.path.join(D, mp4))
@@ -118,8 +120,8 @@ def process(mp4, out_name, mode):
     sheet = Image.new("RGBA", (SIZE * len(tiles), SIZE), (0, 0, 0, 0))
     for i, t in enumerate(tiles): sheet.paste(t, (i * SIZE, 0))
     sheet.save(os.path.join(OUT, out_name))
-    print("  -> %s (%dx%d)" % (out_name, cw, ch))
+    print("  -> %s (%dx%d, %d 帧, 播放间隔 %dms)" % (out_name, cw, ch, len(tiles), round(1000 / fps_real)))
 
 for mp4, out, mode in JOBS:
     process(mp4, out, mode)
-print("done")
+print("done（全部按 ~17ms/帧 播放）")

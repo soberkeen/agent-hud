@@ -1687,7 +1687,7 @@ namespace HDRToggle
                 _mockTimer.Start();
             }
             else RefreshData();
-            _animTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };   // 25fps 播放，与素材帧率一致
+            _animTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(17) };   // ~59fps，与素材真实帧率一致
             _animTimer.Tick += delegate
             {
                 _animIdx++;
