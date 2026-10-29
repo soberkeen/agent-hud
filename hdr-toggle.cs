@@ -1,4 +1,4 @@
-// hdr-toggle.cs — HDR 开关 + 数据侧边栏（原生 WPF 版 v1.4：原位抽屉展开 + HDR 双击确认）
+// hdr-toggle.cs — Agent HUD（HDR 开关 + DeepSeek 余额 + GLM 订阅用量悬浮侧边栏）
 // 用系统自带 csc.exe (.NET Framework 4.x, 仅支持 C#5 语法) 编译，见 build.ps1；Win10/11 零依赖运行
 // 用法:
 //   hdr-toggle.exe              启动侧边栏（单实例，带托盘图标）
@@ -42,13 +42,13 @@ using SD = System.Drawing;
 using WF = System.Windows.Forms;
 using Ellipse = System.Windows.Shapes.Ellipse;
 
-[assembly: AssemblyTitle("HDR Toggle")]
-[assembly: AssemblyProduct("HDR 开关")]
-[assembly: AssemblyDescription("一键开关主显示器 HDR + DeepSeek 余额 + ZCode 用量侧边栏")]
-[assembly: AssemblyCompany("HDR Toggle Project")]
-[assembly: AssemblyCopyright("Copyright (C) 2026 HDR Toggle Project")]
-[assembly: AssemblyVersion("1.4.0.0")]
-[assembly: AssemblyFileVersion("1.4.0.0")]
+[assembly: AssemblyTitle("Agent HUD")]
+[assembly: AssemblyProduct("Agent HUD")]
+[assembly: AssemblyDescription("Agent HUD：HDR 开关 + DeepSeek 余额 + GLM 订阅用量悬浮侧边栏")]
+[assembly: AssemblyCompany("Agent HUD Project")]
+[assembly: AssemblyCopyright("Copyright (C) 2026 Agent HUD Project")]
+[assembly: AssemblyVersion("2.1.0.0")]
+[assembly: AssemblyFileVersion("2.1.0.0")]
 
 namespace HDRToggle
 {
@@ -199,7 +199,7 @@ namespace HDRToggle
             {
                 StringBuilder sb = new StringBuilder(256);
                 GetWindowText(h, sb, 256);
-                if (sb.ToString() == "HDR Toggle") { PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero); found = true; return false; }
+                if (sb.ToString() == "Agent HUD") { PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero); found = true; return false; }
                 return true;
             }, IntPtr.Zero);
             return found;
@@ -344,7 +344,7 @@ namespace HDRToggle
         public static void Save(Dictionary<string, string> d)
         {
             StringBuilder sb = new StringBuilder();
-            sb.AppendLine("# HDR 侧边栏配置（可在设置页修改，或手动编辑）");
+            sb.AppendLine("# Agent HUD 配置（可在设置页修改，或手动编辑）");
             sb.AppendLine("# DeepSeek API key: platform.deepseek.com 创建");
             sb.AppendLine("deepseek_key=" + d["deepseek_key"]);
             sb.AppendLine("deepseek_base=" + d["deepseek_base"]);
@@ -904,7 +904,7 @@ namespace HDRToggle
             }
             catch (Exception ex)
             {
-                try { MessageBox(IntPtr.Zero, ex.ToString(), "HDR Toggle", 0x10); } catch { }
+                try { MessageBox(IntPtr.Zero, ex.ToString(), "Agent HUD", 0x10); } catch { }
                 return 3;
             }
         }
@@ -1029,7 +1029,7 @@ namespace HDRToggle
         {
             _host = host;
             _cfg = host.CurrentConfig;
-            Title = "HDR 侧边栏 · 设置";
+            Title = "Agent HUD · 设置";
             Width = 480; Height = 470;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             ResizeMode = ResizeMode.NoResize;
@@ -1158,7 +1158,7 @@ namespace HDRToggle
             {
                 FontSize = 12,
                 Foreground = Ui.Brush(0x99, 0xFF, 0xFF, 0xFF),
-                Text = "HDR 侧边栏 v1.8 · HDR 开关 + DeepSeek 余额 + ZCode 订阅用量",
+                Text = "Agent HUD v2.1 · HDR 开关 + DeepSeek 余额 + GLM 订阅用量",
             };
             p2.Children.Add(about);
             Button repo = DarkButton("GitHub 仓库", delegate { Ui.OpenUrl("https://github.com/soberkeen/hdr-toggle"); });
@@ -1500,7 +1500,7 @@ namespace HDRToggle
 
         public Widget(EventWaitHandle showEvent)
         {
-            Title = "HDR Toggle";
+            Title = "Agent HUD";
             Width = 104; Height = ClosedH;   // 高度跟随抽屉开合伸缩，不留透明空底
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;   // 禁用系统贴边分屏放大（Aero Snap）
@@ -1828,7 +1828,7 @@ namespace HDRToggle
             {
                 _tray = new WF.NotifyIcon();
                 _tray.Icon = SD.Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location);
-                _tray.Text = "HDR 侧边栏 · HDR + DeepSeek + ZCode";
+                _tray.Text = "Agent HUD · HDR 开关 + DeepSeek + GLM";
                 _tray.Visible = SettingsData.Flag(_cfg, "show_tray");
 
                 WF.ContextMenuStrip menu = new WF.ContextMenuStrip();
