@@ -1,4 +1,4 @@
-// setup.cs — HDR 开关 安装向导（WinForms，单文件内嵌 hdr-toggle.exe，C#5 / 内置 csc）
+// setup.cs — Agent HUD 安装向导（WinForms，内嵌 hdr-toggle.exe 与 assets，C#5 / 内置 csc）
 // 用法:
 //   HDR开关安装器.exe                 打开安装向导（选路径、勾选项、安装）
 //   HDR开关安装器.exe /uninstall      卸载（带确认框；同时清除快捷方式/自启/注册表卸载项）
@@ -19,22 +19,22 @@ using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-[assembly: AssemblyTitle("HDR 开关 安装向导")]
-[assembly: AssemblyProduct("HDR 开关")]
-[assembly: AssemblyDescription("HDR 开关 安装向导")]
-[assembly: AssemblyCompany("HDR Toggle Project")]
-[assembly: AssemblyCopyright("Copyright (C) 2026 HDR Toggle Project")]
-[assembly: AssemblyVersion("1.1.0.0")]
-[assembly: AssemblyFileVersion("1.1.0.0")]
+[assembly: AssemblyTitle("Agent HUD 安装向导")]
+[assembly: AssemblyProduct("Agent HUD")]
+[assembly: AssemblyDescription("Agent HUD 安装向导")]
+[assembly: AssemblyCompany("Agent HUD Project")]
+[assembly: AssemblyCopyright("Copyright (C) 2026 Agent HUD Project")]
+[assembly: AssemblyVersion("2.1.0.0")]
+[assembly: AssemblyFileVersion("2.1.0.0")]
 
 static class Setup
 {
-    public const string AppName = "HDR 开关";
-    public const string Publisher = "HDR Toggle Project";
+    public const string AppName = "Agent HUD";
+    public const string Publisher = "Agent HUD Project";
     public const string AppVersion = "1.1.0.0";
     public const string DirName = "HDR Toggle";
     public const string ExeName = "hdr-toggle.exe";
-    public const string DesktopLnkName = "HDR 开关.lnk";
+    public const string DesktopLnkName = "Agent HUD.lnk";
     public const string RunValueName = "HDR Toggle";
     public const string UninstallKeyName = "{D4A61F02-8C7B-4E17-9A34-1A2B3C4D5E6F}";
 
@@ -96,7 +96,7 @@ static class Setup
             {
                 StringBuilder sb = new StringBuilder(256);
                 GetWindowText(h, sb, 256);
-                if (sb.ToString() == "HDR Toggle") PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero);
+                if (sb.ToString() == "Agent HUD") PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero);
             }
             return true;
         }, IntPtr.Zero);
@@ -120,6 +120,28 @@ static class Setup
             using (FileStream dst = File.Create(exePath))
             {
                 src.CopyTo(dst);
+            }
+        }
+        ExtractAssets(dir);
+    }
+
+    // 释放 assets 文件夹（动画精灵图与角色静态图，资源名以 Asset. 为前缀）
+    public static void ExtractAssets(string dir)
+    {
+        string aDir = Path.Combine(dir, "assets");
+        Directory.CreateDirectory(aDir);
+        Assembly asm = Assembly.GetExecutingAssembly();
+        foreach (string res in asm.GetManifestResourceNames())
+        {
+            if (!res.StartsWith("Asset.")) continue;
+            string file = res.Substring("Asset.".Length);
+            using (Stream src = asm.GetManifestResourceStream(res))
+            {
+                if (src == null) continue;
+                using (FileStream dst = File.Create(Path.Combine(aDir, file)))
+                {
+                    src.CopyTo(dst);
+                }
             }
         }
     }
@@ -251,7 +273,7 @@ public class WizardForm : Form
 
     public WizardForm()
     {
-        Text = "HDR 开关 安装向导";
+        Text = "Agent HUD 安装向导";
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
