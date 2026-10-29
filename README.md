@@ -55,12 +55,8 @@ hdr-toggle.exe -mockcycle    调试演示：合成数据循环切换三种额度
 
 ## 数据配置（DeepSeek）
 
-安装目录下的 `hdr-sidebar.ini`（也可从小窗右键菜单「数据配置」打开）：
-
-```ini
-deepseek_key=sk-xxxxxxxx     # platform.deepseek.com 创建的 API key
-#refresh_minutes=5           # 可选：刷新间隔（分钟）
-```
+API Key 在设置页填写（侧边栏右键 → 设置 → 数据源页签 → 「测试连接」可立即验证）。
+Key 存放于 **Windows 凭据管理器**（目标名 `AgentHUD/DeepSeekKey`），配置文件不含任何密钥。
 
 ZCode 用量无需任何配置（自动读本机 ZCode 凭证）。
 
