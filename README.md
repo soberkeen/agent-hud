@@ -1,6 +1,8 @@
-# HDR 开关 / HDR Toggle
+# Agent HUD
 
-**Win11 桌面悬浮侧边栏：一键开关 HDR + DeepSeek 余额 + ZCode 订阅用量。**
+**Agent HUD——Win11 桌面悬浮侧边栏：一键开关 HDR + DeepSeek 余额 + GLM 订阅用量。**
+
+> 前身项目名 HDR 开关 / HDR Toggle；v2.1 起更名 Agent HUD（仓库名沿用 hdr-toggle）。
 A tiny always-on-top sidebar: HDR toggle for your primary display, DeepSeek balance, and GLM Coding Plan quota rings.
 
 原生 WPF · 单文件零依赖 · 免管理员 · 自动边缘吸附半隐藏 · 附带标准安装向导
