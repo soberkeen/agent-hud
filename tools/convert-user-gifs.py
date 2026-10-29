@@ -24,27 +24,29 @@ JOBS = [
 ]
 
 def key_adaptive(img, bg_color, tol=TOL):
-    """颜色距离<tol 且与边框连通的像素置透明（scipy C 级连通域）"""
+    """颜色距离<tol 的像素：与边框连通的置透明；大块背景色孤岛（>3% 画面，如卡片式底板）也置透明"""
     d = np.sqrt(((img[:, :, :3].astype(np.float32) - np.array(bg_color, np.float32)) ** 2).sum(axis=2))
     mask = d < tol
-    lbl, _ = ndimage.label(mask)
+    lbl, num = ndimage.label(mask)
     border = set(lbl[0, :]) | set(lbl[-1, :]) | set(lbl[:, 0]) | set(lbl[:, -1])
     border.discard(0)
     kill = np.isin(lbl, list(border))
+    # 背景色大孤岛：用户剪辑可能带卡片式底板（不与边框相连）
+    if num:
+        sizes = ndimage.sum(mask, lbl, range(1, num + 1))
+        big = [i + 1 for i, sz in enumerate(sizes) if sz > 0.03 * mask.size and (i + 1) not in border]
+        if big:
+            kill |= np.isin(lbl, big)
     out = img.copy()
     out[kill] = 0
     alpha = np.where(kill, 0, 255).astype(np.uint8)
     return np.dstack([out[:, :, :3], alpha])
 
-def bg_estimate(frames):
-    """背景色 = 多帧四边像素的中位数（抗角色入镜/噪声）"""
-    samples = []
-    for f in frames[:: max(1, len(frames) // 7)]:
-        h, w = f.shape[:2]
-        samples.append(f[0, :, :3]); samples.append(f[h - 1, :, :3])
-        samples.append(f[:, 0, :3]); samples.append(f[:, w - 1, :3])
-    S = np.concatenate([s.reshape(-1, 3) for s in samples])
-    return np.median(S, axis=0)
+def bg_estimate(frame):
+    """背景色 = 单帧四边像素的中位数"""
+    h, w = frame.shape[:2]
+    samples = np.concatenate([frame[0, :, :3], frame[h - 1, :, :3], frame[:, 0, :3], frame[:, w - 1, :3]])
+    return np.median(samples, axis=0)
 
 def frame_to_gif_tile(rgba):
     im = Image.fromarray(rgba, 'RGBA').resize((OUT_PX, OUT_PX), Image.LANCZOS)
@@ -61,11 +63,10 @@ for mp4, gif_name in JOBS:
     fps = float(r.get_meta_data().get("fps") or 24)
     raw = [np.asarray(f) for f in r]
     r.close()
-    bg = bg_estimate(raw)
-    keyed = [key_adaptive(f, bg) for f in raw]
+    keyed = [key_adaptive(f, bg_estimate(f)) for f in raw]
     delay = max(20, round(1000 / fps))
     tiles = [frame_to_gif_tile(f) for f in keyed]
     tiles[0].save(os.path.join(OUT, gif_name), save_all=True, append_images=tiles[1:],
                   duration=delay, loop=0, transparency=255, disposal=2, optimize=False)
-    print("%s  bg=%s  %d 帧 %dms/帧" % (gif_name, bg.astype(int), len(tiles), delay))
+    print("%s  %d 帧 %dms/帧" % (gif_name, len(tiles), delay))
 print("done")
