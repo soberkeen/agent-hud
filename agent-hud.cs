@@ -425,6 +425,7 @@ namespace AgentHud
             d["show_zc"] = "true";                   // 显示 GLM 角色
             d["launch_zcode"] = "";                  // 双击 GLM 角色启动的程序
             d["launch_dsh"] = "";                    // 双击 DeepSeek 角色启动的程序
+            d["fullscreen_action"] = "hide";         // 前台全屏程序时：hide=隐藏 / tuck=缩边 / none=不动
             return d;
         }
 
@@ -511,6 +512,7 @@ namespace AgentHud
             sb.AppendLine("# 双击角色启动的程序（GLM 角色双击启动 zcode / DeepSeek 角色双击启动 dsh）");
             sb.AppendLine("launch_zcode=" + d["launch_zcode"]);
             sb.AppendLine("launch_dsh=" + d["launch_dsh"]);
+            sb.AppendLine("fullscreen_action=" + d["fullscreen_action"]);
             File.WriteAllText(IniPath, sb.ToString(), Encoding.UTF8);
         }
 
@@ -1166,7 +1168,7 @@ namespace AgentHud
         private readonly Widget _host;
         private readonly Dictionary<string, string> _cfg;
         private CheckBox _chkAutostart, _chkTray, _chkHover, _chkShowKey, _chkShowDs, _chkShowZc;
-        private ComboBox _cmbRefresh, _cmbLow, _cmbMid, _cmbMoodSrc;
+        private ComboBox _cmbRefresh, _cmbLow, _cmbMid, _cmbMoodSrc, _cmbFs;
         private PasswordBox _pwdKey;
         private TextBox _txtKey, _txtDsBase, _txtZcBase, _txtLaunchZc, _txtLaunchDs;
         private TextBlock _testResult;
@@ -1224,6 +1226,8 @@ namespace AgentHud
             _chkShowDs = AddCheck(p0, "显示 DeepSeek 角色（大肥鱼，余额）", SettingsData.Flag(_cfg, "show_ds"));
             _chkShowZc = AddCheck(p0, "显示 GLM 角色（订阅额度）", SettingsData.Flag(_cfg, "show_zc"));
             _cmbMoodSrc = AddCombo(p0, "GLM 表情由哪个额度驱动", new string[] { "five", "week", "worst" }, _cfg["zc_mood_source"]);
+            AddTitle(p0, "前台全屏程序（游戏/全屏视频）运行时");
+            _cmbFs = AddCombo(p0, "侧边栏行为", new string[] { "自动隐藏", "缩边显示", "保持显示" }, FsLabel(_cfg["fullscreen_action"]));
             AddHint(p0, "five=5小时额度（推荐） / week=本周 / worst=两者取更差");
             AddThresholds(p0, _cfg["warn_low"], _cfg["warn_mid"]);
             AddTitle(p0, "双击角色启动程序");
@@ -1529,6 +1533,13 @@ namespace AgentHud
             sp.Children.Add(row);
         }
 
+        private string FsLabel(string v)
+        {
+            if (v == "tuck") return "缩边显示";
+            if (v == "none") return "保持显示";
+            return "自动隐藏";
+        }
+
         private string ComboValue(ComboBox cb, string suffix)
         {
             string s = cb.SelectedItem as string;
@@ -1559,6 +1570,7 @@ namespace AgentHud
             d["launch_zcode"] = _txtLaunchZc.Text.Trim();
             d["launch_dsh"] = _txtLaunchDs.Text.Trim();
             d["zc_mood_source"] = (string)_cmbMoodSrc.SelectedItem ?? "five";
+            d["fullscreen_action"] = new string[] { "hide", "tuck", "none" }[Math.Max(0, _cmbFs.SelectedIndex)];
             SettingsData.Save(d);
             SettingsData.SetAutostart(_chkAutostart.IsChecked == true);
             _host.ApplyConfigChanged();
@@ -1643,6 +1655,10 @@ namespace AgentHud
         private string _openDrawer;
         private string _pinPending;      // 单击延迟固定：等待双击消歧
         private DispatcherTimer _pinTimer;
+        private bool _fsHidden;          // 前台全屏程序运行中，已自动让位
+        private bool _fsUsedHide;        // 本次让位方式：true=整体隐藏 / false=缩边
+        private bool _userHidden;        // 用户经托盘主动隐藏（全屏恢复时不打扰）
+        private DispatcherTimer _fsTimer;
 
         private string _dock = "";       // "" | left | right | top | bottom
         private bool _tucked;
@@ -1950,6 +1966,11 @@ namespace AgentHud
                 _mockTimer.Start();
             }
             else RefreshData();
+            // 前台全屏检测：窗口化全屏游戏/全屏视频铺满屏幕时按设置让位（系统只对真·独占全屏自动让位，无边框窗口需要自己检测）
+            _fsTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            _fsTimer.Tick += delegate { CheckForegroundFullscreen(); };
+            _fsTimer.Start();
+
             // 粘性置顶：浏览器等窗口带残留置顶标志/前台提升时会盖住侧边栏，
             // 每 2 秒重新声明一次 TOPMOST（不移动不激活），被盖后最多 2 秒自动浮回
             new System.Windows.Interop.WindowInteropHelper(this).EnsureHandle();
@@ -2013,8 +2034,8 @@ namespace AgentHud
 
         private void ToggleVisible()
         {
-            if (Visibility == Visibility.Visible) { CloseDrawersAndUnpin(); Visibility = Visibility.Hidden; }
-            else { Visibility = Visibility.Visible; UpdateDock(false); }
+            if (Visibility == Visibility.Visible) { CloseDrawersAndUnpin(); _userHidden = true; Visibility = Visibility.Hidden; }
+            else { _userHidden = false; Visibility = Visibility.Visible; UpdateDock(false); }
         }
 
         public void OpenIni()
@@ -2133,6 +2154,57 @@ namespace AgentHud
                 System.Diagnostics.Process.Start(psi);
             }
             catch { }
+        }
+
+        // ---------- 前台全屏让位 ----------
+        private void CheckForegroundFullscreen()
+        {
+            string action;
+            try { action = _cfg["fullscreen_action"]; } catch { action = "hide"; }
+            if (action == "none") { RestoreFromFullscreen(); return; }
+
+            bool fs = false;
+            try
+            {
+                IntPtr fg = GetForegroundWindow();
+                IntPtr me = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                if (fg != IntPtr.Zero && fg != me)
+                {
+                    RECT r;
+                    if (GetWindowRect(fg, out r))
+                    {
+                        var scr = WF.Screen.FromHandle(me);
+                        var b = scr.Bounds;
+                        fs = r.Left <= b.Left + 8 && r.Top <= b.Top + 8 &&
+                             r.Right >= b.Right - 8 && r.Bottom >= b.Bottom - 8;
+                    }
+                }
+            }
+            catch { }
+
+            if (fs && !_fsHidden)
+            {
+                _fsHidden = true;
+                _fsUsedHide = action != "tuck";
+                CloseDrawersAndUnpin();
+                if (_fsUsedHide) Visibility = Visibility.Hidden;
+                else SetDockState(_dock.Length > 0 ? _dock : "right", true, true);
+            }
+            else if (!fs && _fsHidden)
+            {
+                _fsHidden = false;
+                if (_fsUsedHide) Visibility = Visibility.Visible;
+                else SetDockState(_dock.Length > 0 ? _dock : "right", false, true);
+            }
+        }
+
+        private void RestoreFromFullscreen()
+        {
+            if (!_fsHidden) return;
+            _fsHidden = false;
+            if (_userHidden) return;             // 用户主动藏的，不替他打开
+            if (_fsUsedHide) Visibility = Visibility.Visible;
+            else SetDockState(_dock.Length > 0 ? _dock : "right", false, true);
         }
 
         // 单击固定走 350ms 延迟：给双击启动留出消歧窗口
@@ -2394,6 +2466,10 @@ namespace AgentHud
         private int _dfMoodNow = -1, _zcMoodNow = -1;
 
         [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
+        [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+
+        private struct RECT { public int Left, Top, Right, Bottom; }
         private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
         private const uint SWP_NOSIZE = 0x1, SWP_NOMOVE = 0x2, SWP_NOACTIVATE = 0x10;
         public bool MockCycle;          // 调试：合成数据轮播三种状态，不联网
