@@ -4,7 +4,7 @@
 //   HDR开关安装器.exe /uninstall      卸载（带确认框；同时清除快捷方式/自启/注册表卸载项）
 //   HDR开关安装器.exe /uninstall /quiet   静默卸载（无任何对话框，供自动化）
 // 行为:
-//   - 默认装到 %LOCALAPPDATA%\Programs\HDR Toggle（per-user，免管理员），可选任意路径
+//   - 默认装到 %LOCALAPPDATA%\Programs\Agent HUD（per-user，免管理员），可选任意路径
 //   - 桌面/开始菜单快捷方式、控制面板“应用和功能”卸载入口（HKCU Uninstall 键）
 //   - 开机自启默认关闭；安装时自动结束正在运行的旧版小窗并清理旧版目录
 
@@ -32,10 +32,10 @@ static class Setup
     public const string AppName = "Agent HUD";
     public const string Publisher = "Agent HUD Project";
     public const string AppVersion = "1.1.0.0";
-    public const string DirName = "HDR Toggle";
-    public const string ExeName = "hdr-toggle.exe";
+    public const string DirName = "Agent HUD";
+    public const string ExeName = "agent-hud.exe";
     public const string DesktopLnkName = "Agent HUD.lnk";
-    public const string RunValueName = "HDR Toggle";
+    public const string RunValueName = "Agent HUD";
     public const string UninstallKeyName = "{D4A61F02-8C7B-4E17-9A34-1A2B3C4D5E6F}";
 
     // 命名避开 System.Windows.Forms.MessageBox（向导里用的是它的 Show 实例方法）
@@ -96,7 +96,7 @@ static class Setup
             {
                 StringBuilder sb = new StringBuilder(256);
                 GetWindowText(h, sb, 256);
-                if (sb.ToString() == "Agent HUD") PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero);
+                if (sb.ToString() == "Agent HUD" || sb.ToString() == "HDR Toggle") PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero);
             }
             return true;
         }, IntPtr.Zero);
@@ -104,7 +104,8 @@ static class Setup
 
     public static void KillAppProcesses()
     {
-        foreach (Process p in Process.GetProcessesByName(ExeName.Replace(".exe", "")))
+        foreach (string nm in new string[] { ExeName.Replace(".exe", ""), "hdr-toggle" })
+        foreach (Process p in Process.GetProcessesByName(nm))
         {
             try { p.Kill(); } catch { }
         }

@@ -33,7 +33,7 @@ def cb(h, lp):
     if u.IsWindowVisible(h):
         b = ctypes.create_unicode_buffer(64)
         u.GetWindowTextW(h, b, 64)
-        if b.value == 'HDR Toggle':
+        if b.value == 'Agent HUD' or b.value == 'HDR Toggle':
             r = wt.RECT(); u.GetWindowRect(h, ctypes.byref(r))
             found.append((h, r.right - r.left, r.bottom - r.top))
     return True

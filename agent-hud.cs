@@ -1,13 +1,13 @@
 // hdr-toggle.cs — Agent HUD（HDR 开关 + DeepSeek 余额 + GLM 订阅用量悬浮侧边栏）
 // 用系统自带 csc.exe (.NET Framework 4.x, 仅支持 C#5 语法) 编译，见 build.ps1；Win10/11 零依赖运行
 // 用法:
-//   hdr-toggle.exe              启动侧边栏（单实例，带托盘图标）
-//   hdr-toggle.exe -state       打印 HDR 状态（退出码 0=ON 1=OFF 2=错误）
-//   hdr-toggle.exe -toggle      切换一次（退出码=切换后状态: 0=ON 1=OFF 2=错误）
-//   hdr-toggle.exe -on / -off   强制开/关（退出码 0=成功 2=失败）
-//   hdr-toggle.exe -quit        退出（托盘+侧边栏）（0=已关闭 1=未找到）
-//   hdr-toggle.exe -settings    启动并打开设置页（调试/高级用法）
-//   hdr-toggle.exe -popup:ds|zc 启动并固定展开对应抽屉（布局调试用）
+//   agent-hud.exe              启动侧边栏（单实例，带托盘图标）
+//   agent-hud.exe -state       打印 HDR 状态（退出码 0=ON 1=OFF 2=错误）
+//   agent-hud.exe -toggle      切换一次（退出码=切换后状态: 0=ON 1=OFF 2=错误）
+//   agent-hud.exe -on / -off   强制开/关（退出码 0=成功 2=失败）
+//   agent-hud.exe -quit        退出（托盘+侧边栏）（0=已关闭 1=未找到）
+//   agent-hud.exe -settings    启动并打开设置页（调试/高级用法）
+//   agent-hud.exe -popup:ds|zc 启动并固定展开对应抽屉（布局调试用）
 // 交互: 图标悬停时在角色下方原位滑出额度抽屉（DeepSeek=纯余额，ZCode=双圈套数字），
 //       离开延迟消失，点击固定、再点收回；HDR 钮双击确认（单击进入「确认?」琥珀态，3 秒内再点才切换，超时自动还原）防误触；
 //       HDR 圆钮点击切换 HDR；窗口可拖动，拖近屏幕边缘吸附半隐藏；托盘左键显示/隐藏，
@@ -16,8 +16,8 @@
 //       (~/.zcode/v2/credentials.json 的 oauth:bigmodel:access_token，enc:v1 = AES-256-GCM,
 //        key=sha256("zcode-credential-fallback:win32:{profile}:{user}")，BCrypt P/Invoke 解密)
 //       unit=3,number=5 → 五小时圈；unit=6,number=1 → 本周圈
-//       DeepSeek 余额 = {deepseek_base}/user/balance，Bearer key（hdr-sidebar.ini 里 deepseek_key）
-// 配置: hdr-sidebar.ini（exe 旁），设置页可视化编辑；开机自启写 HKCU Run 注册表
+//       DeepSeek 余额 = {deepseek_base}/user/balance，Bearer key（agent-hud.ini 里 deepseek_key）
+// 配置: agent-hud.ini（exe 旁），设置页可视化编辑；开机自启写 HKCU Run 注册表
 
 using System;
 using System.Collections.Generic;
@@ -50,7 +50,7 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyVersion("2.1.0.0")]
 [assembly: AssemblyFileVersion("2.1.0.0")]
 
-namespace HDRToggle
+namespace AgentHud
 {
     // ---------- HDR CCD API（勿改判定逻辑） ----------
     public static class HdrCtl
@@ -199,7 +199,8 @@ namespace HDRToggle
             {
                 StringBuilder sb = new StringBuilder(256);
                 GetWindowText(h, sb, 256);
-                if (sb.ToString() == "Agent HUD") { PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero); found = true; return false; }
+                if (sb.ToString() == "Agent HUD" || sb.ToString() == "HDR Toggle")   // 兼容改名前的旧实例
+                { PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero); found = true; return false; }
                 return true;
             }, IntPtr.Zero);
             return found;
@@ -294,11 +295,47 @@ namespace HDRToggle
         }
     }
 
-    // ---------- 配置（hdr-sidebar.ini） ----------
+    // ---------- v2.1 改名迁移：pos / ini / 自启注册表 旧名 -> 新名 ----------
+    internal static class LegacyMigrator
+    {
+        public static void Run()
+        {
+            try
+            {
+                string dir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+                MigrateFile(Path.Combine(dir, "hdr-toggle.pos"), Path.Combine(dir, "agent-hud.pos"));
+                MigrateFile(Path.Combine(dir, "hdr-sidebar.ini"), Path.Combine(dir, "agent-hud.ini"));
+                using (Microsoft.Win32.RegistryKey k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                    @"Software\Microsoft\Windows\CurrentVersion\Run", true))
+                {
+                    if (k == null) return;
+                    object oldV = k.GetValue("HDR Toggle");
+                    if (oldV is string)
+                    {
+                        string p = ((string)oldV).Trim('"');
+                        if (File.Exists(p)) k.SetValue("Agent HUD", "\"" + p + "\"");
+                        k.DeleteValue("HDR Toggle", false);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private static void MigrateFile(string oldPath, string newPath)
+        {
+            try
+            {
+                if (File.Exists(oldPath) && !File.Exists(newPath)) File.Copy(oldPath, newPath);
+            }
+            catch { }
+        }
+    }
+
+    // ---------- 配置（agent-hud.ini） ----------
     public static class SettingsData
     {
         public static string ExeDir { get { return Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location); } }
-        public static string IniPath { get { return Path.Combine(ExeDir, "hdr-sidebar.ini"); } }
+        public static string IniPath { get { return Path.Combine(ExeDir, "agent-hud.ini"); } }
 
         public static Dictionary<string, string> Defaults()
         {
@@ -381,7 +418,7 @@ namespace HDRToggle
 
         // ---------- 开机自启（HKCU Run） ----------
         private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
-        private const string RunValue = "HDR Toggle";
+        private const string RunValue = "Agent HUD";
 
         public static bool GetAutostart()
         {
@@ -402,7 +439,7 @@ namespace HDRToggle
                 using (Microsoft.Win32.RegistryKey k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunKey, true))
                 {
                     if (k == null) return;
-                    if (on) k.SetValue(RunValue, "\"" + Path.Combine(ExeDir, "hdr-toggle.exe") + "\"");
+                    if (on) k.SetValue(RunValue, "\"" + Path.Combine(ExeDir, "agent-hud.exe") + "\"");
                     else if (k.GetValue(RunValue) != null) k.DeleteValue(RunValue);
                 }
             }
@@ -889,6 +926,7 @@ namespace HDRToggle
         {
             try
             {
+                LegacyMigrator.Run();
                 // 只把 -/ 开头的参数当 CLI 命令；其余杂散参数（如快捷方式残留）忽略，直接进 GUI
                 string first = args.Length > 0 ? args[0] : "";
                 if (first.StartsWith("-") || first.StartsWith("/"))
@@ -951,7 +989,7 @@ namespace HDRToggle
                         return (ds.Ok && zc.Ok) ? 0 : 2;
                     }
                 default:
-                    Out("usage: hdr-toggle.exe [-state|-toggle|-on|-off|-quit|-debugdata|-settings|-popup:ds|-popup:zc|-mockcycle]");
+                    Out("usage: agent-hud.exe [-state|-toggle|-on|-off|-quit|-debugdata|-settings|-popup:ds|-popup:zc|-mockcycle]");
                     return 9;
             }
         }
@@ -985,7 +1023,7 @@ namespace HDRToggle
 
         static int RunGui(bool openSettings, string popupDebug, bool mockCycle = false, string hoverDebug = null)
         {
-            _mutex = new Mutex(false, "Local\\HdrToggleWidget");   // 单实例
+            _mutex = new Mutex(false, "Local\\AgentHud");   // 单实例
             bool owned;
             try { owned = _mutex.WaitOne(0); }
             catch (AbandonedMutexException) { owned = true; }
@@ -993,13 +1031,13 @@ namespace HDRToggle
             {
                 // 已有实例在跑（窗口可能被藏了）：发信号让老实例把窗口亮出来
                 EventWaitHandle show;
-                if (EventWaitHandle.TryOpenExisting("Local\\HdrToggleWidgetShow", out show))
+                if (EventWaitHandle.TryOpenExisting("Local\\AgentHudShow", out show))
                 {
                     try { show.Set(); } catch { } finally { show.Dispose(); }
                 }
                 return 0;
             }
-            EventWaitHandle showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\HdrToggleWidgetShow");
+            EventWaitHandle showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\AgentHudShow");
             Widget w = new Widget(showEvent);
             w.MockCycle = mockCycle;
             w.Show();
@@ -1161,7 +1199,7 @@ namespace HDRToggle
                 Text = "Agent HUD v2.1 · HDR 开关 + DeepSeek 余额 + GLM 订阅用量",
             };
             p2.Children.Add(about);
-            Button repo = DarkButton("GitHub 仓库", delegate { Ui.OpenUrl("https://github.com/soberkeen/hdr-toggle"); });
+            Button repo = DarkButton("GitHub 仓库", delegate { Ui.OpenUrl("https://github.com/soberkeen/agent-hud"); });
             repo.HorizontalAlignment = HorizontalAlignment.Left;
             repo.Margin = new Thickness(0, 8, 0, 0);
             p2.Children.Add(repo);
@@ -1443,7 +1481,7 @@ namespace HDRToggle
             _windowH = target;
         }
 
-        private static readonly string PosFile = Path.Combine(SettingsData.ExeDir, "hdr-toggle.pos");
+        private static readonly string PosFile = Path.Combine(SettingsData.ExeDir, "agent-hud.pos");
 
         // HDR 圆钮（渐变圆角方块 + 状态发光 + 缩放反馈 + 双击确认）
         private readonly Border _hdrBtn;
