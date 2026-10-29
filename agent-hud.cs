@@ -423,6 +423,8 @@ namespace AgentHud
             d["zc_mood_source"] = "five";            // GLM 表情驱动：five=5小时 / week=周 / worst=取最差
             d["show_ds"] = "true";                   // 显示 DeepSeek 角色
             d["show_zc"] = "true";                   // 显示 GLM 角色
+            d["launch_zcode"] = "";                  // 双击 GLM 角色启动的程序
+            d["launch_dsh"] = "";                    // 双击 DeepSeek 角色启动的程序
             return d;
         }
 
@@ -446,6 +448,18 @@ namespace AgentHud
                 }
             }
             catch { }
+            // 双击启动路径兜底：launch_zcode 未配置时探测 ZCode 桌面端安装目录
+            try
+            {
+                if (d["launch_zcode"].Length == 0)
+                {
+                    string zdir = Environment.GetEnvironmentVariable("ZCODE_WINDOWS_APP_INSTALL_DIR");
+                    string zexe = zdir == null ? "" : Path.Combine(zdir, "ZCode.exe");
+                    if (zexe.Length > 0 && File.Exists(zexe)) d["launch_zcode"] = zexe;
+                }
+            }
+            catch { }
+
             // DeepSeek key 从凭据管理器读取；旧版 ini 明文 key 自动迁移并从文件移除
             try
             {
@@ -494,6 +508,9 @@ namespace AgentHud
             sb.AppendLine("# 显示哪些角色（只看一个或都不要都可以）");
             sb.AppendLine("show_ds=" + d["show_ds"]);
             sb.AppendLine("show_zc=" + d["show_zc"]);
+            sb.AppendLine("# 双击角色启动的程序（GLM 角色双击启动 zcode / DeepSeek 角色双击启动 dsh）");
+            sb.AppendLine("launch_zcode=" + d["launch_zcode"]);
+            sb.AppendLine("launch_dsh=" + d["launch_dsh"]);
             File.WriteAllText(IniPath, sb.ToString(), Encoding.UTF8);
         }
 
@@ -1151,7 +1168,7 @@ namespace AgentHud
         private CheckBox _chkAutostart, _chkTray, _chkHover, _chkShowKey, _chkShowDs, _chkShowZc;
         private ComboBox _cmbRefresh, _cmbLow, _cmbMid, _cmbMoodSrc;
         private PasswordBox _pwdKey;
-        private TextBox _txtKey, _txtDsBase, _txtZcBase;
+        private TextBox _txtKey, _txtDsBase, _txtZcBase, _txtLaunchZc, _txtLaunchDs;
         private TextBlock _testResult;
         private readonly List<Border> _tabBtns = new List<Border>();
         private readonly List<StackPanel> _tabPages = new List<StackPanel>();
@@ -1209,6 +1226,9 @@ namespace AgentHud
             _cmbMoodSrc = AddCombo(p0, "GLM 表情由哪个额度驱动", new string[] { "five", "week", "worst" }, _cfg["zc_mood_source"]);
             AddHint(p0, "five=5小时额度（推荐） / week=本周 / worst=两者取更差");
             AddThresholds(p0, _cfg["warn_low"], _cfg["warn_mid"]);
+            AddTitle(p0, "双击角色启动程序");
+            _txtLaunchZc = AddText(p0, "双击 GLM 角色启动（留空=不启动）", _cfg["launch_zcode"]);
+            _txtLaunchDs = AddText(p0, "双击 DeepSeek 角色启动（留空=不启动）", _cfg["launch_dsh"]);
 
             // ===== 页签 1：数据源 =====
             StackPanel p1 = new StackPanel { Margin = new Thickness(12), Visibility = Visibility.Collapsed };
@@ -1536,6 +1556,8 @@ namespace AgentHud
             d["show_tray"] = _chkTray.IsChecked == true ? "true" : "false";
             d["show_ds"] = _chkShowDs.IsChecked == true ? "true" : "false";
             d["show_zc"] = _chkShowZc.IsChecked == true ? "true" : "false";
+            d["launch_zcode"] = _txtLaunchZc.Text.Trim();
+            d["launch_dsh"] = _txtLaunchDs.Text.Trim();
             d["zc_mood_source"] = (string)_cmbMoodSrc.SelectedItem ?? "five";
             SettingsData.Save(d);
             SettingsData.SetAutostart(_chkAutostart.IsChecked == true);
@@ -1619,6 +1641,8 @@ namespace AgentHud
         private string _pinnedDrawer;    // null | "ds" | "zc"（单击固定）
         private string _hoverDrawer;
         private string _openDrawer;
+        private string _pinPending;      // 单击延迟固定：等待双击消歧
+        private DispatcherTimer _pinTimer;
 
         private string _dock = "";       // "" | left | right | top | bottom
         private bool _tucked;
@@ -1707,7 +1731,7 @@ namespace AgentHud
             _dsDot.VerticalAlignment = VerticalAlignment.Bottom;
             _dsRow.Children.Add(_dfPlayer.Visual);
             _dsRow.Children.Add(_dsDot);
-            _dsRow.ToolTip = "DeepSeek 余额（悬停展开，点击固定/收起）";
+            _dsRow.ToolTip = "DeepSeek：悬停展开余额 · 单击固定 · 双击启动 DSH";
             stack.Children.Add(_dsRow);
             if (!showDs) _dsRow.Visibility = Visibility.Collapsed;
             _dsSlide = new TranslateTransform();
@@ -1751,7 +1775,7 @@ namespace AgentHud
             zcDots.Children.Add(_zcWeekDot);
             _zcRow.Children.Add(_zcPlayer.Visual);
             _zcRow.Children.Add(zcDots);
-            _zcRow.ToolTip = "ZCode 订阅用量（悬停展开，点击固定/收起）";
+            _zcRow.ToolTip = "GLM 订阅：悬停展开额度 · 单击固定 · 双击启动 ZCode";
             stack.Children.Add(_zcRow);
             if (!showZc) _zcRow.Visibility = Visibility.Collapsed;
 
@@ -1779,6 +1803,12 @@ namespace AgentHud
             Border pad = new Border { Height = 6, IsHitTestVisible = false };
             stack.Children.Add(pad);
 
+            _pinTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
+            _pinTimer.Tick += delegate
+            {
+                _pinTimer.Stop();
+                if (_pinPending != null && _pinnedDrawer == null) { string sec = _pinPending; _pinPending = null; TogglePin(sec); }
+            };
             _panelHideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
             _panelHideTimer.Tick += delegate
             {
@@ -2035,7 +2065,7 @@ namespace AgentHud
                 Background = Brushes.Transparent,   // 保证空隙也能命中
                 Cursor = Cursors.Hand,
             };
-            g.MouseLeftButtonDown += delegate { OnRowDown(sec); };
+            g.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs me) { OnRowDown(sec, me); };
             g.MouseEnter += delegate { HoverDrawer(sec); };
             g.MouseLeave += delegate { LeaveDrawer(sec); };
             return g;
@@ -2056,7 +2086,7 @@ namespace AgentHud
             if (_pinnedDrawer == null) SchedulePanelHide();
         }
 
-        private void OnRowDown(string sec)
+        private void OnRowDown(string sec, MouseButtonEventArgs e)
         {
             StopPosAnim();
             _downAt = DateTime.Now;
@@ -2066,9 +2096,51 @@ namespace AgentHud
             if (moved < 4 && (DateTime.Now - _downAt).TotalMilliseconds < 1500)
             {
                 if (_tucked) { SetDockState(_dock, false, true); return; }   // 半隐藏首击只唤醒
-                TogglePin(sec);
+                if (e.ClickCount >= 2)
+                {
+                    // 双击：启动对应程序，取消挂起的单击固定
+                    _pinPending = null;
+                    _pinTimer.Stop();
+                    LaunchFor(sec);
+                }
+                else if (e.ClickCount == 1)
+                {
+                    // 单击延迟 350ms 固定：期间出现第二次点击则按双击处理
+                    _pinPending = sec;
+                    _pinTimer.Stop();
+                    _pinTimer.Start();
+                }
             }
             else UpdateDock(true);
+        }
+
+        private void LaunchFor(string sec)
+        {
+            try
+            {
+                string key = sec == "ds" ? "launch_dsh" : "launch_zcode";
+                string path = _cfg[key];
+                if (path.Length == 0)
+                {
+                    OpenSettings();   // 未配置 → 引导到设置页
+                    return;
+                }
+                var psi = new System.Diagnostics.ProcessStartInfo(path)
+                {
+                    UseShellExecute = true,
+                    WorkingDirectory = Path.GetDirectoryName(path.Length > 0 ? path : ".") ?? ".",
+                };
+                System.Diagnostics.Process.Start(psi);
+            }
+            catch { }
+        }
+
+        // 单击固定走 350ms 延迟：给双击启动留出消歧窗口
+        private void TogglePinDelayed(string sec)
+        {
+            _pinPending = sec;
+            _pinTimer.Stop();
+            _pinTimer.Start();
         }
 
         private void TogglePin(string sec)
