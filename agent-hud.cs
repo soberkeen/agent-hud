@@ -310,12 +310,14 @@ namespace AgentHud
                 {
                     if (k == null) return;
                     object oldV = k.GetValue("HDR Toggle");
-                    if (oldV is string)
+                    object newV = k.GetValue("Agent HUD");
+                    if (oldV is string && newV == null)
                     {
+                        // 仅当新值不存在时才沿用旧路径（避免覆盖用户在设置里写入的新值）
                         string p = ((string)oldV).Trim('"');
                         if (File.Exists(p)) k.SetValue("Agent HUD", "\"" + p + "\"");
-                        k.DeleteValue("HDR Toggle", false);
                     }
+                    if (oldV != null) k.DeleteValue("HDR Toggle", false);
                 }
             }
             catch { }
@@ -551,7 +553,12 @@ namespace AgentHud
                 using (Microsoft.Win32.RegistryKey k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunKey, true))
                 {
                     if (k == null) return;
-                    if (on) k.SetValue(RunValue, "\"" + Path.Combine(ExeDir, "agent-hud.exe") + "\"");
+                    if (on)
+                    {
+                        string exe = Path.Combine(ExeDir, "agent-hud.exe");
+                        if (!File.Exists(exe)) return;   // 目标不存在就不写，避免残留死路径
+                        k.SetValue(RunValue, "\"" + exe + "\"");
+                    }
                     else if (k.GetValue(RunValue) != null) k.DeleteValue(RunValue);
                 }
             }
@@ -1211,8 +1218,15 @@ namespace AgentHud
                 ClipToBounds = true,
             };
             Grid.SetRow(contentBox, 1);
+            ScrollViewer scroll = new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Padding = new Thickness(4, 0, 6, 0),
+            };
             Grid pages = new Grid();
-            contentBox.Child = pages;
+            scroll.Content = pages;
+            contentBox.Child = scroll;
             root.Children.Add(contentBox);
 
             // ===== 页签 0：通用 =====
