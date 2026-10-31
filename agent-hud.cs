@@ -1126,6 +1126,7 @@ namespace AgentHud
                     if (cmd == "mockcycle") return RunGui(false, null, true);
                     if (cmd == "hover:ds" || cmd == "hover:zc") return RunGui(false, null, false, cmd.Substring(6));
                     if (cmd == "pintest") return RunGui(false, null, false, null, true);
+                    if (cmd == "hovertest") return RunGui(false, null, false, null, false, true);
                     return RunCli(cmd);
                 }
                 return RunGui(false, null);
@@ -1211,7 +1212,7 @@ namespace AgentHud
             catch { }
         }
 
-        static int RunGui(bool openSettings, string popupDebug, bool mockCycle = false, string hoverDebug = null, bool pinTest = false)
+        static int RunGui(bool openSettings, string popupDebug, bool mockCycle = false, string hoverDebug = null, bool pinTest = false, bool hoverTest = false)
         {
             _mutex = new Mutex(false, "Local\\AgentHud");   // 单实例
             // 退出后快速重启的竞态：旧实例的互斥锁要等 Dispatcher 完全停止才释放。
@@ -1239,6 +1240,7 @@ namespace AgentHud
             w.Show();
             if (hoverDebug != null) w.DebugHover(hoverDebug);
             if (pinTest) w.DebugPinTest();
+            if (hoverTest) w.DebugHoverTest();
             if (openSettings) w.OpenSettings();
             if (popupDebug != null) w.DebugPopup(popupDebug);
             w.Start();          // v1.3 起漏掉过这行：轮询/数据刷新定时器全靠它
@@ -1922,6 +1924,7 @@ namespace AgentHud
 
         private bool _pinDs, _pinZc;         // 单击固定（两抽屉可同时固定）
         private string _hoverDrawer;         // 悬停中的行（null | "ds" | "zc"）
+        private string _hoverOpened;         // 因悬停而展开的抽屉（离开后定时收回的对象）
         private bool _openDs, _openZc;       // 抽屉当前展开状态（固定或悬停都算展开）
         private bool _pendDs, _pendZc;   // 单击延迟固定：等待双击消歧（每角色独立，互不取消）
         private DispatcherTimer _pinTimerDs, _pinTimerZc;
@@ -2128,9 +2131,9 @@ namespace AgentHud
             _panelHideTimer.Tick += delegate
             {
                 _panelHideTimer.Stop();
-                // 悬停展开且未固定的抽屉到点收回；固定中的不动
-                if (_hoverDrawer == "ds" && !_pinDs) AnimateDrawer("ds", false);
-                else if (_hoverDrawer == "zc" && !_pinZc) AnimateDrawer("zc", false);
+                // 悬停展开且未固定的抽屉到点收回（_hoverDrawer 在 Leave 时已清空，用 _hoverOpened 判断）
+                if (_hoverOpened != null && !_pinned(_hoverOpened)) AnimateDrawer(_hoverOpened, false);
+                _hoverOpened = null;
             };
 
             _armTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
@@ -2205,6 +2208,7 @@ namespace AgentHud
                 Dispatcher.BeginInvokeShutdown(DispatcherPriority.Background);
             };
 
+            ApplySkinColors(Skins.IsLight(_currentSkin));   // 启动时文本/把手反色补调
             SetupTray();
             PromoteTrayIcon();
 
@@ -2383,10 +2387,13 @@ namespace AgentHud
             _sepBrush = light ? Ui.Brush(0x40, 0x00, 0x00, 0x00) : Ui.Brush(0x26, 0xFF, 0xFF, 0xFF);
             if (_sepTop != null) _sepTop.Background = _sepBrush;
             if (_sepMid != null) _sepMid.Background = _sepBrush;
-            // 把手指示条颜色随皮肤反色（iOS 式）：亮材质深条，暗材质白条
+            ApplySkinColors(light);
+        }
+
+        // 把手/文本反色：皮肤应用与启动时都要调（启动时 ApplySkin 先于文本创建，需补调）
+        private void ApplySkinColors(bool light)
+        {
             if (_handlePill != null) _handlePill.Background = light ? Ui.Brush(0x50, 0x10, 0x10, 0x14) : Ui.Brush(0x66, 0xFF, 0xFF, 0xFF);
-            // 文本随皮肤反色：亮材质深字，暗材质白字
-            bool lightText = !light;
             if (_dsBalanceText != null) _dsBalanceText.Foreground = light ? Ui.Brush(0xE0, 0x14, 0x16, 0x1C) : Ui.Brush(0xFF, 0xF4, 0xF6, 0xFA);
             foreach (TextBlock cap in _ringCaptions)
                 cap.Foreground = light ? Ui.Brush(0x8C, 0x10, 0x10, 0x14) : Ui.Brush(0x99, 0xFF, 0xFF, 0xFF);
@@ -2453,16 +2460,22 @@ namespace AgentHud
             if (pinned) return;                          // 已固定的抽屉常开
             _hoverDrawer = sec;
             CancelPanelHide();
+            // 悬停展开另一个时，收起之前悬停展开且未固定的那个
+            if (_hoverOpened != null && _hoverOpened != sec && !_pinned(_hoverOpened))
+                AnimateDrawer(_hoverOpened, false);
             bool open = sec == "ds" ? _openDs : _openZc;
-            if (!open) AnimateDrawer(sec, true);
+            if (!open) { AnimateDrawer(sec, true); _hoverOpened = sec; }
         }
 
         private void LeaveDrawer(string sec)
         {
             if (_hoverDrawer == sec) _hoverDrawer = null;
+            // 不清 _hoverOpened：收回定时器需要知道该收谁
             bool pinned = sec == "ds" ? _pinDs : _pinZc;
             if (!pinned) SchedulePanelHide();
         }
+
+        private bool _pinned(string sec) { return sec == "ds" ? _pinDs : _pinZc; }
 
         private void OnRowDown(string sec, bool isDouble)
         {
@@ -2576,7 +2589,8 @@ namespace AgentHud
             if (nowPinned)
             {
                 CancelPanelHide();
-                if (sec == "ds") _hoverDrawer = null; else _hoverDrawer = null;
+                _hoverDrawer = null;
+                if (_hoverOpened == sec) _hoverOpened = null;   // 转为固定常开
             }
             AnimateDrawer(sec, nowPinned);
         }
@@ -2604,6 +2618,7 @@ namespace AgentHud
                 slide.BeginAnimation(TranslateTransform.YProperty, asl);
             }
             if (sec == "ds") _openDs = open; else _openZc = open;
+            if (!open && _hoverOpened == sec) _hoverOpened = null;
 
             // 窗口高度跟随抽屉伸缩（两个抽屉独立求和，底部不留透明空底）
             double newH = ClosedHeightNow() + (_openDs ? DsDrawerH : 0) + (_openZc ? ZcDrawerH : 0);
@@ -2626,6 +2641,7 @@ namespace AgentHud
         {
             _pinDs = _pinZc = false;
             _hoverDrawer = null;
+            _hoverOpened = null;
             if (_openDs) AnimateDrawer("ds", false);
             if (_openZc) AnimateDrawer("zc", false);
         }
@@ -2634,6 +2650,38 @@ namespace AgentHud
         private static void Dbg(string msg)
         {
             try { System.IO.File.AppendAllText(Path.Combine(SettingsData.ExeDir, "anim-err.log"), msg + Environment.NewLine); } catch { }
+        }
+
+        // 回归测试：悬停展开/离开收回/切换悬停（-hovertest）
+        private DispatcherTimer _hoverTestTimer;
+        public void DebugHoverTest()
+        {
+            Dbg("hovertest begin");
+            var steps = new Action[] {
+                delegate { RaiseHover(_zcRow, true); Dbg("t0 enter zc"); },
+                delegate { Dbg("t600 openZc=" + (_zcDrawer.ActualHeight > 0) + " zcH=" + (int)_zcDrawer.ActualHeight); RaiseHover(_zcRow, false); Dbg("t600 leave zc"); },
+                delegate { Dbg("t1200 zcH=" + (int)_zcDrawer.ActualHeight + " <- 期望 0（离开已收回）"); RaiseHover(_dsRow, true); Dbg("t1200 enter ds"); },
+                delegate { Dbg("t1800 dsH=" + (int)_dsDrawer.ActualHeight + " zcH=" + (int)_zcDrawer.ActualHeight); RaiseHover(_dsRow, false); },
+                delegate { Dbg("t2400 dsH=" + (int)_dsDrawer.ActualHeight + " <- 期望 0"); },
+            };
+            _hoverTestTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+            int i = 0;
+            _hoverTestTimer.Tick += delegate
+            {
+                if (i < steps.Length) { steps[i](); i++; }
+                else { _hoverTestTimer.Stop(); Dbg("hovertest end"); }
+            };
+            _hoverTestTimer.Start();
+        }
+
+        private void RaiseHover(Grid row, bool enter)
+        {
+            var args = new MouseEventArgs(System.Windows.Input.Mouse.PrimaryDevice, Environment.TickCount)
+            {
+                RoutedEvent = enter ? Mouse.MouseEnterEvent : Mouse.MouseLeaveEvent,
+                Source = row,
+            };
+            row.RaiseEvent(args);
         }
 
         // 回归测试：单击固定/收回链路（-pintest）
