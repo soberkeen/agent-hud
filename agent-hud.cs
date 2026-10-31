@@ -492,7 +492,7 @@ namespace AgentHud
             }
             catch { }
             // 皮肤迁移：旧值统一映射到 黑色毛玻璃
-            if (d["skin"] != "blur-dark" && d["skin"] != "blur-light") d["skin"] = "blur-dark";
+            if (d["skin"] != "blur-dark" && d["skin"] != "blur-light" && d["skin"] != "dock") d["skin"] = "blur-dark";
             return d;
         }
 
@@ -2375,8 +2375,7 @@ namespace AgentHud
             else _panel.Background = Ui.Brush((byte)Math.Min(255, va + 0x50), 0x10, 0x12, 0x16);
             _panel.BorderBrush = isDock ? Ui.Brush(0x5C, 0xFF, 0xFF, 0xFF)
                 : light ? Ui.Brush(0x4D, 0x00, 0x00, 0x00) : Ui.Brush(0x44, 0xFF, 0xFF, 0xFF);
-            // Dock 悬浮投影（面板层，随窗口形状）
-            _panel.Effect = isDock ? new DropShadowEffect { BlurRadius = 22, ShadowDepth = 6, Opacity = 0.38, Direction = 270 } : null;
+            // 投影已移除：窗口边界即面板边界，DropShadow 会被裁切成四角暗晕
             _panel.CornerRadius = new CornerRadius(24);
             _panel.Margin = new Thickness(0);
             _panel.VerticalAlignment = VerticalAlignment.Top;
