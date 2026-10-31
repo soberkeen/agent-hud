@@ -1581,7 +1581,7 @@ namespace AgentHud
                 return;
             }
             Dictionary<string, string> d = new Dictionary<string, string>(_cfg);
-            SecretStore.Set(_chkShowKey.IsChecked == true ? _txtKey.Text : _pwdKey.Password);
+            SecretStore.Set((_chkShowKey.IsChecked == true ? _txtKey.Text : _pwdKey.Password).Trim());
             d["deepseek_key"] = SecretStore.Get();
             d["deepseek_base"] = string.IsNullOrWhiteSpace(_txtDsBase.Text) ? "https://api.deepseek.com" : _txtDsBase.Text.Trim();
             d["zcode_base"] = _txtZcBase.Text.Trim();
