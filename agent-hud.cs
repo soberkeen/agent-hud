@@ -429,7 +429,8 @@ namespace AgentHud
             d["launch_dsh"] = "";                    // 双击 DeepSeek 角色启动的程序
             d["fullscreen_action"] = "hide";         // 前台全屏程序时：hide=隐藏 / tuck=缩边 / none=不动
             d["skin"] = "dark";                      // 面板材质：dark=黑 / glass=玻璃 / blur=毛玻璃
-            d["blur_tint"] = "C8141E26";             // 毛玻璃色调 #AARRGGBB
+            d["blur_tint"] = "C8141E26";             // （仅旧系统生效）毛玻璃 Accent 色调
+            d["blur_veil"] = "30";                   // 毛玻璃蒙版浓度（十六进制 alpha，越小越透）
             d["ds_warn"] = "20";                     // DeepSeek 余额 <X 元 → 紧张
             d["ds_daze"] = "1";                      // DeepSeek 余额 ≤Y 元 → 痴呆
             return d;
@@ -521,6 +522,7 @@ namespace AgentHud
             sb.AppendLine("fullscreen_action=" + d["fullscreen_action"]);
             sb.AppendLine("skin=" + d["skin"]);
             sb.AppendLine("blur_tint=" + d["blur_tint"]);
+            sb.AppendLine("blur_veil=" + d["blur_veil"]);
             sb.AppendLine("# DeepSeek 余额分档（元）：低于 ds_warn 紧张，低于等于 ds_daze 痴呆");
             sb.AppendLine("ds_warn=" + d["ds_warn"]);
             sb.AppendLine("ds_daze=" + d["ds_daze"]);
@@ -1280,7 +1282,7 @@ namespace AgentHud
             _cmbMoodSrc = AddCombo(p0, "GLM 表情由哪个额度驱动", new string[] { "five", "week", "worst" }, _cfg["zc_mood_source"]);
             AddTitle(p0, "面板材质");
             _cmbSkin = AddCombo(p0, "皮肤", new string[] { "黑色", "玻璃", "毛玻璃" }, SkinLabel(_cfg["skin"]));
-            _cmbBlurTint = AddCombo(p0, "毛玻璃色调", new string[] { "暗磨砂", "亮磨砂", "墨蓝磨砂" }, BlurTintLabel(_cfg["blur_tint"]));
+            _cmbBlurTint = AddCombo(p0, "毛玻璃蒙版浓度", new string[] { "清透", "标准", "深邃" }, VeilLabel(_cfg["blur_veil"]));
             AddTitle(p0, "前台全屏程序（游戏/全屏视频）运行时");
             _cmbFs = AddCombo(p0, "侧边栏行为", new string[] { "自动隐藏", "缩边显示", "保持显示" }, FsLabel(_cfg["fullscreen_action"]));
             AddHint(p0, "five=5小时额度（推荐） / week=本周 / worst=两者取更差");
@@ -1591,11 +1593,11 @@ namespace AgentHud
             sp.Children.Add(row);
         }
 
-        private string BlurTintLabel(string v)
+        private string VeilLabel(string v)
         {
-            if (v == "C8F4F6FA") return "亮磨砂";
-            if (v == "E0101620") return "墨蓝磨砂";
-            return "暗磨砂";
+            if (v == "18") return "清透";
+            if (v == "55") return "深邃";
+            return "标准";
         }
 
         private string SkinLabel(string v)
@@ -1647,7 +1649,7 @@ namespace AgentHud
             d["ds_daze"] = ComboValue(_cmbDsDaze, null);
             string newSkin = new string[] { "dark", "glass", "blur" }[Math.Max(0, _cmbSkin.SelectedIndex)];
             d["skin"] = newSkin;
-            d["blur_tint"] = new string[] { "C8141E26", "C8F4F6FA", "E0101620" }[Math.Max(0, _cmbBlurTint.SelectedIndex)];
+            d["blur_veil"] = new string[] { "18", "30", "55" }[Math.Max(0, _cmbBlurTint.SelectedIndex)];
             if (newSkin != _cfg["skin"] &&
                 (Skins.IsAcrylic(newSkin) != Skins.IsAcrylic(_cfg["skin"])))
                 System.Windows.MessageBox.Show("面板材质已保存。黑 ⇄ 玻璃/毛玻璃 切换需重启侧边栏后生效。",
@@ -2150,14 +2152,17 @@ namespace AgentHud
                         string sk;
                         try { sk = _cfg["skin"]; } catch { sk = "glass"; }
                         IntPtr h = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-                        if (sk == "blur")
+                        // Win11 24H2 (build 26100) 移除了 undocumented Accent Acrylic——
+                        // 忽略它窗口会渲染成黑底。24H2+ 一律用系统 Acrylic，旧系统才走 Accent。
+                        bool legacyAccent = Environment.OSVersion.Version.Build < 26100;
+                        if (sk == "blur" && legacyAccent)
                         {
-                            DwmBackdrop.Apply(h, false);                    // 不要系统背景
+                            DwmBackdrop.Apply(h, false);
                             AccentGlass.Apply(h, _cfg.ContainsKey("blur_tint") ? _cfg["blur_tint"] : "C8141E26");
                         }
                         else
                         {
-                            DwmBackdrop.Apply(h, true);                     // 系统 Acrylic
+                            DwmBackdrop.Apply(h, true);                     // 系统 Acrylic（真模糊）
                         }
                         _acrylicApplied = true;
                     }
@@ -2329,10 +2334,13 @@ namespace AgentHud
                 _panel.CornerRadius = new CornerRadius(8);
                 _panel.Margin = new Thickness(0);
                 _panel.VerticalAlignment = VerticalAlignment.Stretch;
-                if (skin == "blur" && _acrylicApplied)
+                if (skin == "blur")
                 {
-                    // 真毛玻璃：面板近乎透明，Accent 色调承担材质；保存新色调时重打
-                    try { AccentGlass.Apply(new System.Windows.Interop.WindowInteropHelper(this).Handle, cfg["blur_tint"]); } catch { }
+                    // 毛玻璃：系统 Acrylic 之上只盖一层可调浓度的深色蒙版（清透=几乎全透）
+                    byte va;
+                    try { va = Convert.ToByte(cfg["blur_veil"], 16); }
+                    catch { va = 0x30; }
+                    _panel.Background = Ui.Brush(va, 0x14, 0x18, 0x20);
                 }
             }
             else
