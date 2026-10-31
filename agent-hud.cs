@@ -1102,6 +1102,7 @@ namespace AgentHud
                     if (cmd == "settings") return RunGui(true, null);
                     if (cmd == "mockcycle") return RunGui(false, null, true);
                     if (cmd == "hover:ds" || cmd == "hover:zc") return RunGui(false, null, false, cmd.Substring(6));
+                    if (cmd == "pintest") return RunGui(false, null, false, null, true);
                     return RunCli(cmd);
                 }
                 return RunGui(false, null);
@@ -1187,7 +1188,7 @@ namespace AgentHud
             catch { }
         }
 
-        static int RunGui(bool openSettings, string popupDebug, bool mockCycle = false, string hoverDebug = null)
+        static int RunGui(bool openSettings, string popupDebug, bool mockCycle = false, string hoverDebug = null, bool pinTest = false)
         {
             _mutex = new Mutex(false, "Local\\AgentHud");   // 单实例
             // 退出后快速重启的竞态：旧实例的互斥锁要等 Dispatcher 完全停止才释放。
@@ -1214,6 +1215,7 @@ namespace AgentHud
             w.MockCycle = mockCycle;
             w.Show();
             if (hoverDebug != null) w.DebugHover(hoverDebug);
+            if (pinTest) w.DebugPinTest();
             if (openSettings) w.OpenSettings();
             if (popupDebug != null) w.DebugPopup(popupDebug);
             w.Start();          // v1.3 起漏掉过这行：轮询/数据刷新定时器全靠它
@@ -2065,7 +2067,7 @@ namespace AgentHud
             _pinTimer.Tick += delegate
             {
                 _pinTimer.Stop();
-                if (_pinPending != null && _pinnedDrawer == null) { string sec = _pinPending; _pinPending = null; TogglePin(sec); }
+                if (_pinPending != null) { string sec = _pinPending; _pinPending = null; TogglePin(sec); }   // 收回/固定都要执行：双击路径会清掉挂起，这里不会误触
             };
             _panelHideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
             _panelHideTimer.Tick += delegate
@@ -2370,7 +2372,7 @@ namespace AgentHud
                 Background = Brushes.Transparent,   // 保证空隙也能命中
                 Cursor = Cursors.Hand,
             };
-            g.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs me) { OnRowDown(sec, me); };
+            g.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs me) { OnRowDown(sec, me.ClickCount >= 2); };
             g.MouseEnter += delegate { HoverDrawer(sec); };
             g.MouseLeave += delegate { LeaveDrawer(sec); };
             return g;
@@ -2391,7 +2393,12 @@ namespace AgentHud
             if (_pinnedDrawer == null) SchedulePanelHide();
         }
 
-        private void OnRowDown(string sec, MouseButtonEventArgs e)
+        private void OnRowDown(string sec, bool isDouble)
+        {
+            OnRowDownCore(sec, isDouble);
+        }
+
+        private void OnRowDownCore(string sec, bool isDouble)
         {
             StopPosAnim();
             _downAt = DateTime.Now;
@@ -2401,14 +2408,14 @@ namespace AgentHud
             if (moved < 4 && (DateTime.Now - _downAt).TotalMilliseconds < 1500)
             {
                 if (_tucked) { SetDockState(_dock, false, true); return; }   // 半隐藏首击只唤醒
-                if (e.ClickCount >= 2)
+                if (isDouble)
                 {
                     // 双击：启动对应程序，取消挂起的单击固定
                     _pinPending = null;
                     _pinTimer.Stop();
                     LaunchFor(sec);
                 }
-                else if (e.ClickCount == 1)
+                else
                 {
                     // 单击延迟 350ms 固定：期间出现第二次点击则按双击处理
                     _pinPending = sec;
@@ -2576,6 +2583,30 @@ namespace AgentHud
         {
             try { System.IO.File.AppendAllText(Path.Combine(SettingsData.ExeDir, "anim-err.log"), msg + Environment.NewLine); } catch { }
         }
+
+        // 回归测试：单击固定/收回链路（-pintest）
+        public void DebugPinTest()
+        {
+            Dbg("pintest begin");
+            var steps = new Action[] {
+                delegate { OnRowDownCore("zc", false); Dbg("t0 click zc"); },
+                delegate { Dbg("t400 pinned=" + _pinnedDrawer + " zcH=" + _zcDrawer.ActualHeight); OnRowDownCore("zc", false); Dbg("t400 click zc again"); },
+                delegate { Dbg("t800 pinned=" + _pinnedDrawer + " zcH=" + _zcDrawer.ActualHeight); OnRowDownCore("ds", false); Dbg("t800 click ds"); },
+                delegate { Dbg("t1200 pinned=" + _pinnedDrawer + " dsH=" + _dsDrawer.ActualHeight + " <- 期望 pinned=ds"); },
+            };
+            _pinTestTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+            int i = 0;
+            _pinTestTimer.Tick += delegate
+            {
+                if (i < steps.Length) { steps[i](); i++; }
+                else { _pinTestTimer.Stop(); Dbg("pintest end"); }
+            };
+            _pinTestTimer.Start();   // 必须持有引用：局部 DispatcherTimer 会被 GC 回收导致不再触发
+        }
+
+        private DispatcherTimer _pinTestTimer;
+
+
 
         // 调试：程序化触发 MouseEnter（复现 HoverDrawer→AnimateDrawer 路径）
         public void DebugHover(string section)
