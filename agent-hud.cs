@@ -1814,7 +1814,7 @@ namespace AgentHud
             lg.EndPoint = new Point(0, 1);
             Border g = new Border
             {
-                CornerRadius = new CornerRadius(0),
+                CornerRadius = new CornerRadius(16, 16, 8, 8),   // 与面板 R 角一致（顶部 16）
                 IsHitTestVisible = false,
                 VerticalAlignment = VerticalAlignment.Top,
                 Height = 60,
@@ -2332,7 +2332,6 @@ namespace AgentHud
             _sepBrush = light ? Ui.Brush(0x40, 0x00, 0x00, 0x00) : Ui.Brush(0x26, 0xFF, 0xFF, 0xFF);
             if (_sepTop != null) _sepTop.Background = _sepBrush;
             if (_sepMid != null) _sepMid.Background = _sepBrush;
-            if (_gloss != null) _gloss.CornerRadius = new CornerRadius(16, 16, 8, 8);
             // dark/light 只是 DWM 标志位差异：已有句柄时即时重打，无需重启
             if (_acrylicApplied)
             {
@@ -2352,6 +2351,7 @@ namespace AgentHud
                 _panelGrid.Children.Insert(0, _gloss);
                 System.Windows.Controls.Panel.SetZIndex(_gloss, -1);
             }
+            if (_gloss != null) _gloss.CornerRadius = new CornerRadius(16, 16, 8, 8);
         }
 
         // 设置页实时预览：把改动立即套到 HUD（不落盘）
