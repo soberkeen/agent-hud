@@ -491,6 +491,8 @@ namespace AgentHud
                 d["deepseek_key"] = key;
             }
             catch { }
+            // 皮肤迁移：旧值统一映射到 黑色毛玻璃
+            if (d["skin"] != "blur-dark" && d["skin"] != "blur-light") d["skin"] = "blur-dark";
             return d;
         }
 
@@ -1295,7 +1297,7 @@ namespace AgentHud
             _chkShowZc = AddCheck(p0, "显示 GLM 角色（订阅额度）", SettingsData.Flag(_cfg, "show_zc"));
             _cmbMoodSrc = AddCombo(p0, "GLM 表情由哪个额度驱动", new string[] { "five", "week", "worst" }, _cfg["zc_mood_source"]);
             AddTitle(p0, "面板材质");
-            _cmbSkin = AddCombo(p0, "皮肤", new string[] { "黑色", "玻璃", "毛玻璃" }, SkinLabel(_cfg["skin"]));
+            _cmbSkin = AddCombo(p0, "皮肤", new string[] { "黑色毛玻璃", "白色毛玻璃" }, SkinLabel(_cfg["skin"]));
             _cmbBlurTint = AddCombo(p0, "毛玻璃蒙版浓度", new string[] { "清透", "标准", "深邃" }, VeilLabel(_cfg["blur_veil"]));
             AddTitle(p0, "前台全屏程序（游戏/全屏视频）运行时");
             _cmbFs = AddCombo(p0, "侧边栏行为", new string[] { "自动隐藏", "缩边显示", "保持显示" }, FsLabel(_cfg["fullscreen_action"]));
@@ -1629,9 +1631,8 @@ namespace AgentHud
 
         private string SkinLabel(string v)
         {
-            if (v == "glass") return "玻璃";
-            if (v == "blur") return "毛玻璃";
-            return "黑色";
+            if (v == "blur-light") return "白色毛玻璃";
+            return "黑色毛玻璃";
         }
 
         private Dictionary<string, string> CollectUi()
@@ -1653,7 +1654,7 @@ namespace AgentHud
             d["launch_dsh"] = _txtLaunchDs.Text.Trim();
             d["zc_mood_source"] = (string)_cmbMoodSrc.SelectedItem ?? "five";
             d["fullscreen_action"] = new string[] { "hide", "tuck", "none" }[Math.Max(0, _cmbFs.SelectedIndex)];
-            d["skin"] = new string[] { "dark", "glass", "blur" }[Math.Max(0, _cmbSkin.SelectedIndex)];
+            d["skin"] = new string[] { "blur-dark", "blur-light" }[Math.Max(0, _cmbSkin.SelectedIndex)];
             d["blur_veil"] = new string[] { "18", "30", "55" }[Math.Max(0, _cmbBlurTint.SelectedIndex)];
             return d;
         }
@@ -1695,10 +1696,6 @@ namespace AgentHud
             SecretStore.Set(d["deepseek_key"].Trim());
             d["deepseek_key"] = SecretStore.Get();
             string newSkin = d["skin"];
-            if (newSkin != _cfg["skin"] &&
-                (Skins.IsAcrylic(newSkin) != Skins.IsAcrylic(_cfg["skin"])))
-                System.Windows.MessageBox.Show("面板材质已保存。毛玻璃 ⇄ 黑色/玻璃 切换需重启侧边栏后生效。",
-                    "Agent HUD", MessageBoxButton.OK, MessageBoxImage.Information);
             SettingsData.Save(d);
             SettingsData.SetAutostart(_chkAutostart.IsChecked == true);
             _saved = true;
@@ -1802,27 +1799,14 @@ namespace AgentHud
     // ---------- 面板皮肤 ----------
     internal static class Skins
     {
-        // dark=分层窗口实心；glass/blur=DWM Acrylic 上的浅色调板
-        public static Brush PanelBackground(string skin)
-        {
-            if (skin == "glass") return Ui.Brush(0x38, 0xFF, 0xFF, 0xFF);          // 纯透明：低透明白纱，壁纸直透
-            if (skin == "blur") return Ui.Brush(0x66, 0x14, 0x18, 0x20);           // acrylic 上的深纱
-            return Ui.Brush(0xE6, 0x20, 0x20, 0x20);                               // dark
-        }
+        public static bool IsAcrylic(string skin) { return skin == "blur-dark" || skin == "blur-light"; }
 
-        public static Brush PanelBorder(string skin)
-        {
-            if (skin == "glass") return Ui.Brush(0x55, 0xFF, 0xFF, 0xFF);
-            if (skin == "blur") return Ui.Brush(0x66, 0xFF, 0xFF, 0xFF);
-            return Ui.Brush(0x33, 0xFF, 0xFF, 0xFF);
-        }
-
-        public static bool IsAcrylic(string skin) { return skin == "blur"; }   // 玻璃=纯透明（分层），毛玻璃=Acrylic 模糊
+        public static bool IsLight(string skin) { return skin == "blur-light"; }
 
         // 玻璃高光斜纹（顶部一道渐变提亮，模拟玻璃反光）
         public static Border GlossOverlay(string skin)
         {
-            if (skin != "glass" && skin != "blur") return null;
+            if (!IsAcrylic(skin)) return null;
             LinearGradientBrush lg = new LinearGradientBrush(
                 Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF),
                 Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF), 90);
@@ -1830,7 +1814,7 @@ namespace AgentHud
             lg.EndPoint = new Point(0, 1);
             Border g = new Border
             {
-                CornerRadius = new CornerRadius(16, 16, 8, 8),
+                CornerRadius = new CornerRadius(0),
                 IsHitTestVisible = false,
                 VerticalAlignment = VerticalAlignment.Top,
                 Height = 60,
@@ -1900,6 +1884,8 @@ namespace AgentHud
         private Grid _panelGrid;
         private bool _acrylicMode;
         private bool _acrylicApplied;
+        private string _currentSkin = "blur-dark";
+        private Brush _sepBrush;
         private bool _dfFrozen, _zcFrozen;   // 数据异常时定格，不瞎动
         private int _lastZcMood = -1;        // 额度分档迟滞用，防阈值附近反复横跳
 
@@ -2201,14 +2187,14 @@ namespace AgentHud
                         // Win11 24H2 (build 26100) 移除了 undocumented Accent Acrylic——
                         // 忽略它窗口会渲染成黑底。24H2+ 一律用系统 Acrylic，旧系统才走 Accent。
                         bool legacyAccent = Environment.OSVersion.Version.Build < 26100;
-                        if (sk == "blur" && legacyAccent)
+                        if (legacyAccent)
                         {
                             DwmBackdrop.Apply(h, false, true);
                             AccentGlass.Apply(h, _cfg.ContainsKey("blur_tint") ? _cfg["blur_tint"] : "C8141E26");
                         }
                         else
                         {
-                            DwmBackdrop.Apply(h, true, sk == "blur" ? false : true);   // blur=亮色 Acrylic
+                            DwmBackdrop.Apply(h, true, !Skins.IsLight(sk));   // 黑毛=暗 Acrylic，白毛=亮 Acrylic
                         }
                         _acrylicApplied = true;
                     }
@@ -2372,28 +2358,33 @@ namespace AgentHud
         {
             string skin;
             try { skin = cfg["skin"]; } catch { skin = "dark"; }
-            _panel.Background = Skins.PanelBackground(skin);
-            _panel.BorderBrush = Skins.PanelBorder(skin);
-            if (Skins.IsAcrylic(skin) && DwmBackdrop.Supported)
+            if (skin != "blur-dark" && skin != "blur-light") skin = "blur-dark";
+            _currentSkin = skin;
+            bool light = Skins.IsLight(skin);
+            byte va;
+            try { va = Convert.ToByte(cfg["blur_veil"], 16); }
+            catch { va = 0x30; }
+            // 材质 = 系统 Acrylic + 单层蒙版：黑毛盖深纱，白毛盖白纱
+            _panel.Background = light ? Ui.Brush(va, 0xFA, 0xFB, 0xFE) : Ui.Brush(va, 0x14, 0x18, 0x20);
+            _panel.BorderBrush = light ? Ui.Brush(0x4D, 0x00, 0x00, 0x00) : Ui.Brush(0x44, 0xFF, 0xFF, 0xFF);
+            // 面板圆角归零：外 R 角全交 DWM，消除双 R 角
+            _panel.CornerRadius = new CornerRadius(0);
+            _panel.Margin = new Thickness(0);
+            _panel.VerticalAlignment = VerticalAlignment.Stretch;
+            // 分隔线随皮肤：白毛黑线，黑毛白线
+            _sepBrush = light ? Ui.Brush(0x40, 0x00, 0x00, 0x00) : Ui.Brush(0x26, 0xFF, 0xFF, 0xFF);
+            if (_sepTop != null) _sepTop.Background = _sepBrush;
+            if (_sepMid != null) _sepMid.Background = _sepBrush;
+            if (_gloss != null) _gloss.CornerRadius = new CornerRadius(0);
+            // dark/light 只是 DWM 标志位差异：已有句柄时即时重打，无需重启
+            if (_acrylicApplied)
             {
-                // acrylic 模式：面板充满窗口，圆角交给 DWM（8px），材质由系统合成
-                _panel.CornerRadius = new CornerRadius(8);
-                _panel.Margin = new Thickness(0);
-                _panel.VerticalAlignment = VerticalAlignment.Stretch;
-                if (skin == "blur")
+                try
                 {
-                    // 毛玻璃：亮色 Acrylic 之上盖一层可调浓度的白纱（清透=几乎全透）
-                    byte va;
-                    try { va = Convert.ToByte(cfg["blur_veil"], 16); }
-                    catch { va = 0x30; }
-                    _panel.Background = Ui.Brush(va, 0xFA, 0xFB, 0xFE);
+                    IntPtr h = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                    if (h != IntPtr.Zero) DwmBackdrop.Apply(h, true, !light);
                 }
-            }
-            else
-            {
-                _panel.CornerRadius = new CornerRadius(16);
-                _panel.Margin = new Thickness(0);
-                _panel.VerticalAlignment = VerticalAlignment.Top;
+                catch { }
             }
             // 换肤：先移除旧高光层，再垫底插入新层
             if (_gloss != null && _panelGrid != null && _panelGrid.Children.Contains(_gloss))
@@ -2963,19 +2954,20 @@ namespace AgentHud
             ca.EasingFunction = ease;
             ColorAnimation ga = new ColorAnimation(glow, dur);
             ga.EasingFunction = ease;
-            DoubleAnimation go = new DoubleAnimation(glowOpacity, dur);
+            double glowTarget = Skins.IsAcrylic(_currentSkin) ? 0 : glowOpacity;   // 毛玻璃上光晕呈白圈，去掉
+            DoubleAnimation go = new DoubleAnimation(glowTarget, dur);
             _hdrFill.BeginAnimation(SolidColorBrush.ColorProperty, ca);
             _hdrGlow.BeginAnimation(DropShadowEffect.ColorProperty, ga);
             _hdrGlow.BeginAnimation(DropShadowEffect.OpacityProperty, go);
         }
 
-        private static Border Sep()
+        private Border Sep()
         {
             return new Border
             {
                 Height = 1,
                 Margin = new Thickness(10, 3, 10, 3),
-                Background = Ui.Brush(0x26, 0xFF, 0xFF, 0xFF),
+                Background = _sepBrush ?? Ui.Brush(0x26, 0xFF, 0xFF, 0xFF),
                 IsHitTestVisible = false,
             };
         }
