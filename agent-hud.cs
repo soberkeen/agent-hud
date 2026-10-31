@@ -600,6 +600,7 @@ namespace AgentHud
             req.Timeout = timeoutMs;
             req.ReadWriteTimeout = timeoutMs;
             req.Headers[HttpRequestHeader.Authorization] = "Bearer " + bearer;
+            req.Accept = "application/json";
             httpStatus = -1;
             try
             {
@@ -641,20 +642,48 @@ namespace AgentHud
         }
 
         // ---------- DeepSeek ----------
-        // GET /user/balance → {"is_available":true,"balance_info":{"total_balance":"..","granted_balance":"..","topped_up_balance":"..","currency":"CNY"}}
+        // GET /user/balance → 新版 {"is_available":true,"balance_infos":[{"currency":"CNY","total_balance":"..","granted_balance":"..","topped_up_balance":".."}]}
+        //                    （旧版 balance_info 单对象，兼容解析）
         public static DsInfo FetchDeepSeek(string baseUrl, string key)
         {
             DsInfo r = new DsInfo();
-            if (string.IsNullOrEmpty(key)) { r.Error = "未配置 deepseek_key"; return r; }
+            if (key == null) key = "";
+            key = key.Trim();
+            if (key.Length == 0) { r.Error = "未配置 API Key"; return r; }
             try
             {
                 long st;
                 string body = HttpGet(baseUrl.TrimEnd('/') + "/user/balance", key, 12000, out st);
                 JavaScriptSerializer js = new JavaScriptSerializer();
                 IDictionary<string, object> root = JsonObj(js, body);
-                if (root == null) throw new Exception("响应不是 JSON");
+                if (root == null) throw new Exception("响应不是 JSON（HTTP " + st + "）");
+                if (st != 200)
+                {
+                    // 透传服务器错误：{"error":{"message":"..."}} 或 {"msg":"..."}
+                    string msg = "";
+                    object errO;
+                    if (root.TryGetValue("error", out errO) && errO is IDictionary<string, object>)
+                    {
+                        object m;
+                        if (((IDictionary<string, object>)errO).TryGetValue("message", out m) && m != null) msg = m.ToString();
+                    }
+                    if (msg.Length == 0) { object m2; if (root.TryGetValue("msg", out m2) && m2 != null) msg = m2.ToString(); }
+                    if (msg.Length == 0) msg = body.Length > 120 ? body.Substring(0, 120) : body;
+                    throw new Exception("HTTP " + st + (msg.Length > 0 ? "：" + msg : ""));
+                }
+                // 新版 balance_infos 数组（取第一条）；兼容旧版 balance_info 对象
                 object bal;
-                if (!root.TryGetValue("balance_info", out bal) || !(bal is IDictionary<string, object>)) throw new Exception("缺少 balance_info");
+                if (!root.TryGetValue("balance_infos", out bal) || !(bal is IEnumerable<object>))
+                    root.TryGetValue("balance_info", out bal);
+                if (bal is IEnumerable<object>)
+                {
+                    foreach (object it in (IEnumerable<object>)bal)
+                    {
+                        bal = it as IDictionary<string, object>;
+                        if (bal != null) break;
+                    }
+                }
+                if (!(bal is IDictionary<string, object>)) throw new Exception("响应里没有余额字段（HTTP " + st + "）");
                 IDictionary<string, object> b = (IDictionary<string, object>)bal;
                 object tb, gb, cur;
                 b.TryGetValue("total_balance", out tb);
@@ -1276,7 +1305,7 @@ namespace AgentHud
             StackPanel dsTestRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
             Button btnDs = DarkButton("测试连接", delegate
             {
-                string key = _chkShowKey.IsChecked == true ? _txtKey.Text : _pwdKey.Password;
+                string key = (_chkShowKey.IsChecked == true ? _txtKey.Text : _pwdKey.Password).Trim();
                 _testResult.Text = "DeepSeek: 查询中…";
                 string baseUrl = _txtDsBase.Text.Trim();
                 ThreadPool.QueueUserWorkItem(delegate
