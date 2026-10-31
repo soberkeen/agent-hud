@@ -2314,16 +2314,6 @@ namespace AgentHud
             _sepBrush = light ? Ui.Brush(0x40, 0x00, 0x00, 0x00) : Ui.Brush(0x26, 0xFF, 0xFF, 0xFF);
             if (_sepTop != null) _sepTop.Background = _sepBrush;
             if (_sepMid != null) _sepMid.Background = _sepBrush;
-            // 换肤：先移除旧高光层，再垫底插入新层
-            if (_gloss != null && _panelGrid != null && _panelGrid.Children.Contains(_gloss))
-                _panelGrid.Children.Remove(_gloss);
-            _gloss = Skins.GlossOverlay(skin);
-            if (_gloss != null && _panelGrid != null)
-            {
-                _panelGrid.Children.Insert(0, _gloss);
-                System.Windows.Controls.Panel.SetZIndex(_gloss, -1);
-            }
-            if (_gloss != null) _gloss.CornerRadius = new CornerRadius(16, 16, 8, 8);
         }
 
         // 设置页实时预览：把改动立即套到 HUD（不落盘）
