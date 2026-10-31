@@ -1190,9 +1190,15 @@ namespace AgentHud
         static int RunGui(bool openSettings, string popupDebug, bool mockCycle = false, string hoverDebug = null)
         {
             _mutex = new Mutex(false, "Local\\AgentHud");   // 单实例
-            bool owned;
-            try { owned = _mutex.WaitOne(0); }
-            catch (AbandonedMutexException) { owned = true; }
+            // 退出后快速重启的竞态：旧实例的互斥锁要等 Dispatcher 完全停止才释放。
+            // 若拿锁即退（发信号给旧实例），旧实例可能随即死掉 -> 信号落空 -> 一个 HUD 都不剩（表现为"闪退"）。
+            // 所以先等锁最多 3 秒：等到了就自己当主实例启动。
+            bool owned = false;
+            for (int i = 0; i < 30 && !owned; i++)
+            {
+                try { owned = _mutex.WaitOne(100); }
+                catch (AbandonedMutexException) { owned = true; }
+            }
             if (!owned)
             {
                 // 已有实例在跑（窗口可能被藏了）：发信号让老实例把窗口亮出来
