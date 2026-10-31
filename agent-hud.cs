@@ -1803,24 +1803,10 @@ namespace AgentHud
 
         public static bool IsLight(string skin) { return skin == "blur-light"; }
 
-        // 玻璃高光斜纹（顶部一道渐变提亮，模拟玻璃反光）
+        // 顶部高光层已移除：暗纱材质上它表现为 HDR 钮区域泛白
         public static Border GlossOverlay(string skin)
         {
-            if (!IsAcrylic(skin)) return null;
-            LinearGradientBrush lg = new LinearGradientBrush(
-                Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF),
-                Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF), 90);
-            lg.StartPoint = new Point(0, 0);
-            lg.EndPoint = new Point(0, 1);
-            Border g = new Border
-            {
-                CornerRadius = new CornerRadius(16, 16, 8, 8),   // 与面板 R 角一致（顶部 16）
-                IsHitTestVisible = false,
-                VerticalAlignment = VerticalAlignment.Top,
-                Height = 60,
-                Background = lg,
-            };
-            return g;
+            return null;
         }
     }
 
@@ -1878,12 +1864,8 @@ namespace AgentHud
         private Border _sepTop, _sepMid;
         private FramePlayer _dfPlayer, _zcPlayer;
         private System.Diagnostics.Stopwatch _animClock;
-        private int _animIdx = -1;
         private Border _panel;
-        private Border _gloss;
         private Grid _panelGrid;
-        private bool _acrylicMode;
-        private bool _acrylicApplied;
         private string _currentSkin = "blur-dark";
         private Brush _sepBrush;
         private bool _dfFrozen, _zcFrozen;   // 数据异常时定格，不瞎动
@@ -2332,16 +2314,6 @@ namespace AgentHud
             _sepBrush = light ? Ui.Brush(0x40, 0x00, 0x00, 0x00) : Ui.Brush(0x26, 0xFF, 0xFF, 0xFF);
             if (_sepTop != null) _sepTop.Background = _sepBrush;
             if (_sepMid != null) _sepMid.Background = _sepBrush;
-            // dark/light 只是 DWM 标志位差异：已有句柄时即时重打，无需重启
-            if (_acrylicApplied)
-            {
-                try
-                {
-                    IntPtr h = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-                    if (h != IntPtr.Zero) DwmBackdrop.Apply(h, true, !light);
-                }
-                catch { }
-            }
             // 换肤：先移除旧高光层，再垫底插入新层
             if (_gloss != null && _panelGrid != null && _panelGrid.Children.Contains(_gloss))
                 _panelGrid.Children.Remove(_gloss);
