@@ -428,6 +428,7 @@ namespace AgentHud
             d["launch_zcode"] = "";                  // 双击 GLM 角色启动的程序
             d["launch_dsh"] = "";                    // 双击 DeepSeek 角色启动的程序
             d["fullscreen_action"] = "hide";         // 前台全屏程序时：hide=隐藏 / tuck=缩边 / none=不动
+            d["skin"] = "dark";                      // 面板材质：dark=黑 / glass=玻璃 / blur=毛玻璃
             return d;
         }
 
@@ -515,6 +516,7 @@ namespace AgentHud
             sb.AppendLine("launch_zcode=" + d["launch_zcode"]);
             sb.AppendLine("launch_dsh=" + d["launch_dsh"]);
             sb.AppendLine("fullscreen_action=" + d["fullscreen_action"]);
+            sb.AppendLine("skin=" + d["skin"]);
             File.WriteAllText(IniPath, sb.ToString(), Encoding.UTF8);
         }
 
@@ -1175,7 +1177,7 @@ namespace AgentHud
         private readonly Widget _host;
         private readonly Dictionary<string, string> _cfg;
         private CheckBox _chkAutostart, _chkTray, _chkHover, _chkShowKey, _chkShowDs, _chkShowZc;
-        private ComboBox _cmbRefresh, _cmbLow, _cmbMid, _cmbMoodSrc, _cmbFs;
+        private ComboBox _cmbRefresh, _cmbLow, _cmbMid, _cmbMoodSrc, _cmbFs, _cmbSkin;
         private PasswordBox _pwdKey;
         private TextBox _txtKey, _txtDsBase, _txtZcBase, _txtLaunchZc, _txtLaunchDs;
         private TextBlock _testResult;
@@ -1240,6 +1242,8 @@ namespace AgentHud
             _chkShowDs = AddCheck(p0, "显示 DeepSeek 角色（大肥鱼，余额）", SettingsData.Flag(_cfg, "show_ds"));
             _chkShowZc = AddCheck(p0, "显示 GLM 角色（订阅额度）", SettingsData.Flag(_cfg, "show_zc"));
             _cmbMoodSrc = AddCombo(p0, "GLM 表情由哪个额度驱动", new string[] { "five", "week", "worst" }, _cfg["zc_mood_source"]);
+            AddTitle(p0, "面板材质");
+            _cmbSkin = AddCombo(p0, "皮肤", new string[] { "黑色", "玻璃", "毛玻璃" }, SkinLabel(_cfg["skin"]));
             AddTitle(p0, "前台全屏程序（游戏/全屏视频）运行时");
             _cmbFs = AddCombo(p0, "侧边栏行为", new string[] { "自动隐藏", "缩边显示", "保持显示" }, FsLabel(_cfg["fullscreen_action"]));
             AddHint(p0, "five=5小时额度（推荐） / week=本周 / worst=两者取更差");
@@ -1547,6 +1551,13 @@ namespace AgentHud
             sp.Children.Add(row);
         }
 
+        private string SkinLabel(string v)
+        {
+            if (v == "glass") return "玻璃";
+            if (v == "blur") return "毛玻璃";
+            return "黑色";
+        }
+
         private string FsLabel(string v)
         {
             if (v == "tuck") return "缩边显示";
@@ -1585,10 +1596,50 @@ namespace AgentHud
             d["launch_dsh"] = _txtLaunchDs.Text.Trim();
             d["zc_mood_source"] = (string)_cmbMoodSrc.SelectedItem ?? "five";
             d["fullscreen_action"] = new string[] { "hide", "tuck", "none" }[Math.Max(0, _cmbFs.SelectedIndex)];
+            d["skin"] = new string[] { "dark", "glass", "blur" }[Math.Max(0, _cmbSkin.SelectedIndex)];
             SettingsData.Save(d);
             SettingsData.SetAutostart(_chkAutostart.IsChecked == true);
             _host.ApplyConfigChanged();
             Close();
+        }
+    }
+
+    // ---------- 面板皮肤 ----------
+    internal static class Skins
+    {
+        // 返回 (Background, BorderBrush, BlurRadius, 是否需亚克力层)
+        public static Brush PanelBackground(string skin)
+        {
+            if (skin == "glass") return Ui.Brush(0x3C, 0xFF, 0xFF, 0xFF);          // 半透白，透出桌面
+            if (skin == "blur") return Ui.Brush(0x8C, 0x1E, 0x22, 0x2C);           // 深蓝灰半透
+            return Ui.Brush(0xE6, 0x20, 0x20, 0x20);                               // dark
+        }
+
+        public static Brush PanelBorder(string skin)
+        {
+            if (skin == "glass") return Ui.Brush(0x55, 0xFF, 0xFF, 0xFF);
+            if (skin == "blur") return Ui.Brush(0x44, 0x7C, 0xFC, 0x9E);
+            return Ui.Brush(0x33, 0xFF, 0xFF, 0xFF);
+        }
+
+        // 玻璃高光斜纹（顶部一道渐变提亮，模拟玻璃反光）
+        public static Border GlossOverlay(string skin)
+        {
+            if (skin != "glass" && skin != "blur") return null;
+            LinearGradientBrush lg = new LinearGradientBrush(
+                Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF),
+                Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF), 90);
+            lg.StartPoint = new Point(0, 0);
+            lg.EndPoint = new Point(0, 1);
+            Border g = new Border
+            {
+                CornerRadius = new CornerRadius(16, 16, 8, 8),
+                IsHitTestVisible = false,
+                VerticalAlignment = VerticalAlignment.Top,
+                Height = 60,
+                Background = lg,
+            };
+            return g;
         }
     }
 
@@ -1647,6 +1698,9 @@ namespace AgentHud
         private FramePlayer _dfPlayer, _zcPlayer;
         private System.Diagnostics.Stopwatch _animClock;
         private int _animIdx = -1;
+        private Border _panel;
+        private Border _gloss;
+        private Grid _panelGrid;
         private bool _dfFrozen, _zcFrozen;   // 数据异常时定格，不瞎动
         private int _lastZcMood = -1;        // 额度分档迟滞用，防阈值附近反复横跳
 
@@ -1698,18 +1752,20 @@ namespace AgentHud
 
             _cfg = SettingsData.Load();
 
-            Border panel = new Border
+            _panel = new Border
             {
                 CornerRadius = new CornerRadius(16),
-                Background = Ui.Brush(0xE6, 0x20, 0x20, 0x20),
-                BorderBrush = Ui.Brush(0x33, 0xFF, 0xFF, 0xFF),
                 BorderThickness = new Thickness(1),
                 VerticalAlignment = VerticalAlignment.Top,   // 抽屉收起时面板贴顶，底部保持透明
             };
+            ApplySkin(SettingsData.Load());
             StackPanel stack = new StackPanel();
-            panel.Child = stack;
+            Grid panelGrid = new Grid();          // gloss 垫底，stack 在上
+            _panel.Child = panelGrid;
+            panelGrid.Children.Add(stack);
+            _panelGrid = panelGrid;
             _root = new Grid { Cursor = Cursors.Hand };
-            _root.Children.Add(panel);
+            _root.Children.Add(_panel);
             Content = _root;
 
             // ---- HDR 圆钮（美化 + 双击确认防误触） ----
@@ -2069,10 +2125,29 @@ namespace AgentHud
             _settings.Show();
         }
 
+        // 应用面板皮肤（设置保存时即时切换）
+        public void ApplySkin(Dictionary<string, string> cfg)
+        {
+            string skin;
+            try { skin = cfg["skin"]; } catch { skin = "dark"; }
+            _panel.Background = Skins.PanelBackground(skin);
+            _panel.BorderBrush = Skins.PanelBorder(skin);
+            // 换肤：先移除旧高光层，再垫底插入新层
+            if (_gloss != null && _panelGrid != null && _panelGrid.Children.Contains(_gloss))
+                _panelGrid.Children.Remove(_gloss);
+            _gloss = Skins.GlossOverlay(skin);
+            if (_gloss != null && _panelGrid != null)
+            {
+                _panelGrid.Children.Insert(0, _gloss);
+                System.Windows.Controls.Panel.SetZIndex(_gloss, -1);
+            }
+        }
+
         // 设置保存后：重读配置、同步托盘/角色可见性、立刻刷新数据
         public void ApplyConfigChanged()
         {
             _cfg = SettingsData.Load();
+            ApplySkin(_cfg);
             if (_tray != null) _tray.Visible = SettingsData.Flag(_cfg, "show_tray");
             if (_dfPlayer != null) _dfPlayer.Reload();
             if (_zcPlayer != null) _zcPlayer.Reload();
