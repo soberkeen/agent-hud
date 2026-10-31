@@ -1843,7 +1843,8 @@ namespace AgentHud
 
         private void UpdateHeightNow()
         {
-            double target = ClosedHeightNow() + (_openDrawer == "ds" ? DsDrawerH : (_openDrawer == "zc" ? ZcDrawerH : 0));
+            double target = ClosedHeightNow() + (_openDs ? DsDrawerH : 0) + (_openZc ? ZcDrawerH : 0);
+            
             BeginAnimation(Window.HeightProperty, null);
             Height = target;
             _windowH = target;
@@ -1893,11 +1894,11 @@ namespace AgentHud
         private ZcInfo _zc;
         private DateTime _lastFetch = DateTime.MinValue;
 
-        private string _pinnedDrawer;    // null | "ds" | "zc"（单击固定）
-        private string _hoverDrawer;
-        private string _openDrawer;
-        private string _pinPending;      // 单击延迟固定：等待双击消歧
-        private DispatcherTimer _pinTimer;
+        private bool _pinDs, _pinZc;         // 单击固定（两抽屉可同时固定）
+        private string _hoverDrawer;         // 悬停中的行（null | "ds" | "zc"）
+        private bool _openDs, _openZc;       // 抽屉当前展开状态（固定或悬停都算展开）
+        private bool _pendDs, _pendZc;   // 单击延迟固定：等待双击消歧（每角色独立，互不取消）
+        private DispatcherTimer _pinTimerDs, _pinTimerZc;
         private bool _fsHidden;          // 前台全屏程序运行中，已自动让位
         private bool _fsUsedHide;        // 本次让位方式：true=整体隐藏 / false=缩边
         private bool _userHidden;        // 用户经托盘主动隐藏（全屏恢复时不打扰）
@@ -2063,17 +2064,25 @@ namespace AgentHud
             Border pad = new Border { Height = 6, IsHitTestVisible = false };
             stack.Children.Add(pad);
 
-            _pinTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
-            _pinTimer.Tick += delegate
+            _pinTimerDs = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
+            _pinTimerDs.Tick += delegate
             {
-                _pinTimer.Stop();
-                if (_pinPending != null) { string sec = _pinPending; _pinPending = null; TogglePin(sec); }   // 收回/固定都要执行：双击路径会清掉挂起，这里不会误触
+                _pinTimerDs.Stop();
+                if (_pendDs) { _pendDs = false; TogglePin("ds"); }   // 双击路径会清挂起，这里不会误触
+            };
+            _pinTimerZc = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
+            _pinTimerZc.Tick += delegate
+            {
+                _pinTimerZc.Stop();
+                if (_pendZc) { _pendZc = false; TogglePin("zc"); }
             };
             _panelHideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
             _panelHideTimer.Tick += delegate
             {
                 _panelHideTimer.Stop();
-                if (_pinnedDrawer == null && _hoverDrawer == null && _openDrawer != null) AnimateDrawer(_openDrawer, false);
+                // 悬停展开且未固定的抽屉到点收回；固定中的不动
+                if (_hoverDrawer == "ds" && !_pinDs) AnimateDrawer("ds", false);
+                else if (_hoverDrawer == "zc" && !_pinZc) AnimateDrawer("zc", false);
             };
 
             _armTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
@@ -2381,16 +2390,19 @@ namespace AgentHud
         private void HoverDrawer(string sec)
         {
             if (!SettingsData.Flag(_cfg, "hover_details")) return;
-            if (_pinnedDrawer != null) return;          // 固定中不跟随悬停
+            bool pinned = sec == "ds" ? _pinDs : _pinZc;
+            if (pinned) return;                          // 已固定的抽屉常开
             _hoverDrawer = sec;
             CancelPanelHide();
-            if (_openDrawer != sec) OpenDrawer(sec);
+            bool open = sec == "ds" ? _openDs : _openZc;
+            if (!open) AnimateDrawer(sec, true);
         }
 
         private void LeaveDrawer(string sec)
         {
             if (_hoverDrawer == sec) _hoverDrawer = null;
-            if (_pinnedDrawer == null) SchedulePanelHide();
+            bool pinned = sec == "ds" ? _pinDs : _pinZc;
+            if (!pinned) SchedulePanelHide();
         }
 
         private void OnRowDown(string sec, bool isDouble)
@@ -2410,17 +2422,16 @@ namespace AgentHud
                 if (_tucked) { SetDockState(_dock, false, true); return; }   // 半隐藏首击只唤醒
                 if (isDouble)
                 {
-                    // 双击：启动对应程序，取消挂起的单击固定
-                    _pinPending = null;
-                    _pinTimer.Stop();
+                    // 双击：启动对应程序，取消本角色的挂起
+                    if (sec == "ds") { _pendDs = false; _pinTimerDs.Stop(); }
+                    else { _pendZc = false; _pinTimerZc.Stop(); }
                     LaunchFor(sec);
                 }
                 else
                 {
                     // 单击延迟 350ms 固定：期间出现第二次点击则按双击处理
-                    _pinPending = sec;
-                    _pinTimer.Stop();
-                    _pinTimer.Start();
+                    if (sec == "ds") { _pendDs = true; _pinTimerDs.Stop(); _pinTimerDs.Start(); }
+                    else { _pendZc = true; _pinTimerZc.Stop(); _pinTimerZc.Start(); }
                 }
             }
             else UpdateDock(true);
@@ -2498,35 +2509,17 @@ namespace AgentHud
             else SetDockState(_dock.Length > 0 ? _dock : "right", false, true);
         }
 
-        // 单击固定走 350ms 延迟：给双击启动留出消歧窗口
-        private void TogglePinDelayed(string sec)
-        {
-            _pinPending = sec;
-            _pinTimer.Stop();
-            _pinTimer.Start();
-        }
-
         private void TogglePin(string sec)
         {
-            if (_pinnedDrawer == sec)
+            // 独立固定：不影响另一个抽屉
+            if (sec == "ds") _pinDs = !_pinDs; else _pinZc = !_pinZc;
+            bool nowPinned = sec == "ds" ? _pinDs : _pinZc;
+            if (nowPinned)
             {
-                _pinnedDrawer = null;
-                AnimateDrawer(sec, false);
-            }
-            else
-            {
-                _pinnedDrawer = sec;
                 CancelPanelHide();
-                OpenDrawer(sec);
+                if (sec == "ds") _hoverDrawer = null; else _hoverDrawer = null;
             }
-        }
-
-        private void OpenDrawer(string sec)
-        {
-            CancelPanelHide();
-            string other = sec == "ds" ? "zc" : "ds";
-            if (_openDrawer == other) AnimateDrawer(other, false);   // 互斥：开一个收另一个
-            AnimateDrawer(sec, true);
+            AnimateDrawer(sec, nowPinned);
         }
 
         private void AnimateDrawer(string sec, bool open)
@@ -2551,8 +2544,7 @@ namespace AgentHud
                 asl.EasingFunction = ease;
                 slide.BeginAnimation(TranslateTransform.YProperty, asl);
             }
-            _openDrawer = open ? sec : (_openDrawer == sec ? null : _openDrawer);
-            if (!open && _pinnedDrawer == sec) _pinnedDrawer = null;
+            if (sec == "ds") _openDs = open; else _openZc = open;
 
             // 窗口高度跟随抽屉伸缩，底部不留透明空底
             double newH = ClosedHeightNow() + (open ? target : 0);
@@ -2573,9 +2565,10 @@ namespace AgentHud
 
         private void CloseDrawersAndUnpin()
         {
-            _pinnedDrawer = null;
+            _pinDs = _pinZc = false;
             _hoverDrawer = null;
-            if (_openDrawer != null) AnimateDrawer(_openDrawer, false);
+            if (_openDs) AnimateDrawer("ds", false);
+            if (_openZc) AnimateDrawer("zc", false);
         }
 
         // 布局调试：-popup:ds|zc 启动即固定展开对应抽屉
@@ -2590,9 +2583,10 @@ namespace AgentHud
             Dbg("pintest begin");
             var steps = new Action[] {
                 delegate { OnRowDownCore("zc", false); Dbg("t0 click zc"); },
-                delegate { Dbg("t400 pinned=" + _pinnedDrawer + " zcH=" + _zcDrawer.ActualHeight); OnRowDownCore("zc", false); Dbg("t400 click zc again"); },
-                delegate { Dbg("t800 pinned=" + _pinnedDrawer + " zcH=" + _zcDrawer.ActualHeight); OnRowDownCore("ds", false); Dbg("t800 click ds"); },
-                delegate { Dbg("t1200 pinned=" + _pinnedDrawer + " dsH=" + _dsDrawer.ActualHeight + " <- 期望 pinned=ds"); },
+                delegate { Dbg("t400 pinZc=" + _pinZc + " zcH=" + (int)_zcDrawer.ActualHeight + " dsH=" + (int)_dsDrawer.ActualHeight); OnRowDownCore("ds", false); Dbg("t400 click ds"); },
+                delegate { Dbg("t800 pinZc=" + _pinZc + " pinDs=" + _pinDs + " zcH=" + (int)_zcDrawer.ActualHeight + " dsH=" + (int)_dsDrawer.ActualHeight + " <- 期望同时固定"); },
+                delegate { OnRowDownCore("zc", false); Dbg("t1200 click zc again"); },
+                delegate { Dbg("t1600 pinZc=" + _pinZc + " pinDs=" + _pinDs + " zcH=" + (int)_zcDrawer.ActualHeight + " dsH=" + (int)_dsDrawer.ActualHeight + " <- 期望 zc 收回 ds 常开"); },
             };
             _pinTestTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
             int i = 0;
@@ -2632,8 +2626,8 @@ namespace AgentHud
         {
             Dispatcher.CurrentDispatcher.BeginInvoke((Action)delegate
             {
-                _pinnedDrawer = section;
-                OpenDrawer(section);
+                if (section == "ds") _pinDs = true; else _pinZc = true;
+                AnimateDrawer(section, true);
             }, DispatcherPriority.ApplicationIdle);
         }
 
