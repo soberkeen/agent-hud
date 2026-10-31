@@ -1214,11 +1214,13 @@ namespace AgentHud
     {
         private readonly Widget _host;
         private readonly Dictionary<string, string> _cfg;
+        private readonly Dictionary<string, string> _initialCfg;
         private CheckBox _chkAutostart, _chkTray, _chkHover, _chkShowKey, _chkShowDs, _chkShowZc;
         private ComboBox _cmbRefresh, _cmbLow, _cmbMid, _cmbMoodSrc, _cmbFs, _cmbSkin, _cmbDsWarn, _cmbDsDaze, _cmbBlurTint;
         private PasswordBox _pwdKey;
         private TextBox _txtKey, _txtDsBase, _txtZcBase, _txtLaunchZc, _txtLaunchDs;
         private TextBlock _testResult;
+        private bool _saved;
         private readonly List<Border> _tabBtns = new List<Border>();
         private readonly List<StackPanel> _tabPages = new List<StackPanel>();
 
@@ -1226,6 +1228,7 @@ namespace AgentHud
         {
             _host = host;
             _cfg = host.CurrentConfig;
+            _initialCfg = new Dictionary<string, string>(_cfg);
             Title = "Agent HUD · 设置";
             Width = 480; Height = 470;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -1400,13 +1403,26 @@ namespace AgentHud
             Button save = DarkButton("保存", delegate { SaveAndClose(); });
             save.Background = Ui.Brush(0xFF, 0x17, 0x7B, 0x4D);
             save.BorderBrush = Ui.Brush(0xFF, 0x22, 0x99, 0x66);
-            Button cancel = DarkButton("取消", delegate { Close(); });
+            Button cancel = DarkButton("取消", delegate { _saved = true; _host.ApplyPreview(_initialCfg); Close(); });
             cancel.Margin = new Thickness(8, 0, 0, 0);
             btns.Children.Add(save);
             btns.Children.Add(cancel);
             root.Children.Add(btns);
 
+            Closed += delegate
+            {
+                if (!_saved) _host.ApplyPreview(_initialCfg);   // 未保存关闭：还原预览改动
+            };
+
             SwitchTab(0);
+
+            // 实时预览挂接：选择类控件一变就套用
+            foreach (ComboBox cb in new ComboBox[] { _cmbRefresh, _cmbLow, _cmbMid, _cmbMoodSrc, _cmbFs, _cmbSkin, _cmbBlurTint, _cmbDsWarn, _cmbDsDaze })
+                cb.SelectionChanged += delegate { LivePreview(); };
+            foreach (CheckBox ck in new CheckBox[] { _chkTray, _chkHover, _chkShowDs, _chkShowZc })
+                ck.Click += delegate { LivePreview(); };
+            _txtLaunchZc.TextChanged += delegate { LivePreview(); };
+            _txtLaunchDs.TextChanged += delegate { LivePreview(); };
         }
 
         // 页签：手动实现的按钮 + 页面切换（比系统 TabControl 好做暗色样式）
@@ -1607,6 +1623,41 @@ namespace AgentHud
             return "黑色";
         }
 
+        private Dictionary<string, string> CollectUi()
+        {
+            Dictionary<string, string> d = new Dictionary<string, string>(_cfg);
+            d["deepseek_key"] = _chkShowKey.IsChecked == true ? _txtKey.Text : _pwdKey.Password;
+            d["deepseek_base"] = string.IsNullOrWhiteSpace(_txtDsBase.Text) ? "https://api.deepseek.com" : _txtDsBase.Text.Trim();
+            d["zcode_base"] = _txtZcBase.Text.Trim();
+            d["refresh_minutes"] = ComboValue(_cmbRefresh, " 分钟");
+            d["warn_low"] = ComboValue(_cmbLow, null);
+            d["warn_mid"] = ComboValue(_cmbMid, null);
+            d["ds_warn"] = ComboValue(_cmbDsWarn, null);
+            d["ds_daze"] = ComboValue(_cmbDsDaze, null);
+            d["hover_details"] = _chkHover.IsChecked == true ? "true" : "false";
+            d["show_tray"] = _chkTray.IsChecked == true ? "true" : "false";
+            d["show_ds"] = _chkShowDs.IsChecked == true ? "true" : "false";
+            d["show_zc"] = _chkShowZc.IsChecked == true ? "true" : "false";
+            d["launch_zcode"] = _txtLaunchZc.Text.Trim();
+            d["launch_dsh"] = _txtLaunchDs.Text.Trim();
+            d["zc_mood_source"] = (string)_cmbMoodSrc.SelectedItem ?? "five";
+            d["fullscreen_action"] = new string[] { "hide", "tuck", "none" }[Math.Max(0, _cmbFs.SelectedIndex)];
+            d["skin"] = new string[] { "dark", "glass", "blur" }[Math.Max(0, _cmbSkin.SelectedIndex)];
+            d["blur_veil"] = new string[] { "18", "30", "55" }[Math.Max(0, _cmbBlurTint.SelectedIndex)];
+            return d;
+        }
+
+        private void LivePreview()
+        {
+            try
+            {
+                Dictionary<string, string> d = CollectUi();
+                if (d["show_ds"] != "true" && d["show_zc"] != "true") return;   // 全关非法，不预览
+                _host.ApplyPreview(d);
+            }
+            catch { }
+        }
+
         private string FsLabel(string v)
         {
             if (v == "tuck") return "缩边显示";
@@ -1629,33 +1680,17 @@ namespace AgentHud
                 _testResult.Foreground = Ui.Brush(0xFF, 0xFF, 0xB0, 0xB0);
                 return;
             }
-            Dictionary<string, string> d = new Dictionary<string, string>(_cfg);
-            SecretStore.Set((_chkShowKey.IsChecked == true ? _txtKey.Text : _pwdKey.Password).Trim());
+            Dictionary<string, string> d = CollectUi();
+            SecretStore.Set(d["deepseek_key"].Trim());
             d["deepseek_key"] = SecretStore.Get();
-            d["deepseek_base"] = string.IsNullOrWhiteSpace(_txtDsBase.Text) ? "https://api.deepseek.com" : _txtDsBase.Text.Trim();
-            d["zcode_base"] = _txtZcBase.Text.Trim();
-            d["refresh_minutes"] = ComboValue(_cmbRefresh, " 分钟");
-            d["warn_low"] = ComboValue(_cmbLow, null);
-            d["warn_mid"] = ComboValue(_cmbMid, null);
-            d["hover_details"] = _chkHover.IsChecked == true ? "true" : "false";
-            d["show_tray"] = _chkTray.IsChecked == true ? "true" : "false";
-            d["show_ds"] = _chkShowDs.IsChecked == true ? "true" : "false";
-            d["show_zc"] = _chkShowZc.IsChecked == true ? "true" : "false";
-            d["launch_zcode"] = _txtLaunchZc.Text.Trim();
-            d["launch_dsh"] = _txtLaunchDs.Text.Trim();
-            d["zc_mood_source"] = (string)_cmbMoodSrc.SelectedItem ?? "five";
-            d["fullscreen_action"] = new string[] { "hide", "tuck", "none" }[Math.Max(0, _cmbFs.SelectedIndex)];
-            d["ds_warn"] = ComboValue(_cmbDsWarn, null);
-            d["ds_daze"] = ComboValue(_cmbDsDaze, null);
-            string newSkin = new string[] { "dark", "glass", "blur" }[Math.Max(0, _cmbSkin.SelectedIndex)];
-            d["skin"] = newSkin;
-            d["blur_veil"] = new string[] { "18", "30", "55" }[Math.Max(0, _cmbBlurTint.SelectedIndex)];
+            string newSkin = d["skin"];
             if (newSkin != _cfg["skin"] &&
                 (Skins.IsAcrylic(newSkin) != Skins.IsAcrylic(_cfg["skin"])))
                 System.Windows.MessageBox.Show("面板材质已保存。黑 ⇄ 玻璃/毛玻璃 切换需重启侧边栏后生效。",
                     "Agent HUD", MessageBoxButton.OK, MessageBoxImage.Information);
             SettingsData.Save(d);
             SettingsData.SetAutostart(_chkAutostart.IsChecked == true);
+            _saved = true;
             _host.ApplyConfigChanged();
             Close();
         }
@@ -2358,6 +2393,22 @@ namespace AgentHud
                 _panelGrid.Children.Insert(0, _gloss);
                 System.Windows.Controls.Panel.SetZIndex(_gloss, -1);
             }
+        }
+
+        // 设置页实时预览：把改动立即套到 HUD（不落盘）
+        public void ApplyPreview(Dictionary<string, string> d)
+        {
+            _cfg = new Dictionary<string, string>(d);
+            ApplySkin(_cfg);
+            bool showTray = SettingsData.Flag(_cfg, "show_tray");
+            if (_tray != null) _tray.Visible = showTray;
+            bool ds = SettingsData.Flag(_cfg, "show_ds"), zc = SettingsData.Flag(_cfg, "show_zc");
+            if (_dsRow != null) _dsRow.Visibility = ds ? Visibility.Visible : Visibility.Collapsed;
+            if (_zcRow != null) _zcRow.Visibility = zc ? Visibility.Visible : Visibility.Collapsed;
+            if (_sepMid != null) _sepMid.Visibility = (ds && zc) ? Visibility.Visible : Visibility.Collapsed;
+            if (_sepTop != null) _sepTop.Visibility = ds ? Visibility.Visible : Visibility.Collapsed;
+            UpdateHeightNow();
+            if (_ds != null || _zc != null) ApplyData();   // 分档变了立刻用现有数据重画
         }
 
         // 设置保存后：重读配置、同步托盘/角色可见性、立刻刷新数据
