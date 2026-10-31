@@ -2001,10 +2001,10 @@ namespace AgentHud
             _hdrGlow = new DropShadowEffect { BlurRadius = 16, ShadowDepth = 0, Opacity = 0.25 };
             _hdrBtn = new Border
             {
-                Width = 68, Height = 68,
+                Width = 58, Height = 58,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
-                CornerRadius = new CornerRadius(19),
+                CornerRadius = new CornerRadius(16),
                 Background = _hdrFill,
                 BorderBrush = Ui.Brush(0x55, 0xFF, 0xFF, 0xFF),
                 BorderThickness = new Thickness(1),
@@ -2016,7 +2016,7 @@ namespace AgentHud
             _label = new TextBlock
             {
                 Text = "HDR",
-                FontSize = 16,
+                FontSize = 14.5,
                 FontWeight = FontWeights.Bold,
                 Foreground = Ui.Brush(0xFF, 0xEE, 0xEE, 0xEE),
                 HorizontalAlignment = HorizontalAlignment.Center,
