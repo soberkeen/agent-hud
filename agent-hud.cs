@@ -1989,29 +1989,33 @@ namespace AgentHud
         private readonly TextBlock _title, _body;
         private readonly StackPanel _btnRow;
         private readonly DispatcherTimer _life;
+        private Border _tail;
+        private Grid _outer;
+        private string _tailSide = "right";
+        private double _tailY;
+        private bool _darkText;
         public event Action<NotifyBubble, string> ButtonClick;   // 确认按钮（label）
         public event Action<NotifyBubble> Closed;
 
-        public NotifyBubble(string id, string app, string kind, string title, string body, string[] buttons, int timeoutSec)
+        public NotifyBubble(string id, string app, string kind, string title, string body, string[] buttons, int timeoutSec, Brush frameBrush, bool darkText)
         {
             Id = id; App = app; Kind = kind;
+            _darkText = darkText;
             Popup = new Popup();
             Popup.AllowsTransparency = true;
             Popup.StaysOpen = true;
             Popup.Placement = PlacementMode.Absolute;
-            // 漫画气泡：白底 + 深色细描边 + 深色文字（任何皮肤下都可读）
             _frame = new Border();
             _frame.CornerRadius = new CornerRadius(12);
-            _frame.Background = Ui.Brush(0xF5, 0xFF, 0xFF, 0xFF);
-            _frame.BorderBrush = Ui.Brush(0xE0, 0x1A, 0x1A, 0x1A);
-            _frame.BorderThickness = new Thickness(1.2);
+            _frame.Background = frameBrush;                  // 与 HUD 面板同源材质
+            _frame.BorderBrush = Ui.Brush(0x4D, 0xFF, 0xFF, 0xFF);
+            _frame.BorderThickness = new Thickness(1);
             _frame.Width = 264;
             _frame.Padding = new Thickness(12);
-            _frame.Effect = new DropShadowEffect { BlurRadius = 10, ShadowDepth = 2, Opacity = 0.22 };
             StackPanel sp = new StackPanel();
-            _title = new TextBlock { Text = title, FontSize = 13, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap, Foreground = Ui.Brush(0xFF, 0x14, 0x14, 0x14) };
+            _title = new TextBlock { Text = title, FontSize = 13, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap, Foreground = darkText ? Ui.Brush(0xF0, 0x14, 0x16, 0x1C) : Ui.Brush(0xFF, 0xF4, 0xF6, 0xFA) };
             sp.Children.Add(_title);
-            _body = new TextBlock { Text = body, FontSize = 12, Foreground = Ui.Brush(0xE6, 0x28, 0x28, 0x28), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 5, 0, 0) };
+            _body = new TextBlock { Text = body, FontSize = 12, Foreground = darkText ? Ui.Brush(0xD0, 0x30, 0x32, 0x3A) : Ui.Brush(0xCC, 0xCC, 0xCC, 0xCC), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 5, 0, 0) };
             sp.Children.Add(_body);
             if (buttons != null && buttons.Length > 0)
             {
@@ -2033,22 +2037,20 @@ namespace AgentHud
                 sp.Children.Add(_btnRow);
             }
             _frame.Child = sp;
-            // 外框：留出阴影与尾巴的外溢空间；尾巴 = 旋转 45° 的菱形，指向角色头顶
-            Grid outer = new Grid { Margin = new Thickness(14, 14, 14, 24) };
-            outer.Children.Add(_frame);
+            // 外框：尾巴所在侧留 10px 外溢空间；尾巴 = 旋转 45° 的菱形，材质同气泡
+            _outer = new Grid { Margin = new Thickness(0, 0, 0, 0) };
+            _outer.Children.Add(_frame);
             _tail = new Border
             {
-                Width = 12, Height = 12,
+                Width = 11, Height = 11,
                 CornerRadius = new CornerRadius(2),
-                Background = Ui.Brush(0xF5, 0xFF, 0xFF, 0xFF),
-                BorderBrush = Ui.Brush(0xE0, 0x1A, 0x1A, 0x1A),
-                BorderThickness = new Thickness(1.2),
+                Background = frameBrush,
                 RenderTransformOrigin = new Point(0.5, 0.5),
                 RenderTransform = new RotateTransform(45),
                 IsHitTestVisible = false,
             };
-            outer.Children.Add(_tail);
-            Popup.Child = outer;
+            _outer.Children.Add(_tail);
+            Popup.Child = _outer;
             if (kind != "confirm")
                 _life = new DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
             else
@@ -2061,32 +2063,31 @@ namespace AgentHud
 
         public double Width { get { return 264; } }
 
-        // 漫画式展开：headX/headY = 角色头顶屏幕坐标(DIP)；above=气泡在头上方
-        // left/top 由调用方按方向偏好+屏幕钳位算好；尾巴自动对准头部 X
-        public void OpenAt(double left, double top, double headX, bool above)
+        // 展开定位：left/top = 气泡外框左上（DIP）；tailSide = 尾巴在气泡哪一侧；tailY = 尾巴中心 Y
+        public void OpenAt(double left, double top, string tailSide, double tailY)
         {
-            Popup.HorizontalOffset = left - 14;   // 外框留边(阴影/尾巴空间)
-            Popup.VerticalOffset = top - 14;
+            _tailSide = tailSide; _tailY = tailY;
+            Popup.HorizontalOffset = left;
+            Popup.VerticalOffset = top;
             Popup.IsOpen = true;
             Dispatcher.CurrentDispatcher.BeginInvoke((Action)delegate
             {
                 try
                 {
-                    // 尾巴 X = 头部 X 相对气泡左缘，夹在气泡范围内
-                    double tx = headX - left - 14;
-                    if (tx < 16) tx = 16;
-                    if (tx > 264 - 30) tx = 264 - 30;
-                    if (_tail != null)
-                    {
-                        if (above) { _tail.VerticalAlignment = VerticalAlignment.Bottom; _tail.Margin = new Thickness(tx, 0, 0, 14); }
-                        else { _tail.VerticalAlignment = VerticalAlignment.Top; _tail.Margin = new Thickness(tx, 14, 0, 0); }
-                    }
+                    double fh = _frame.ActualHeight > 0 ? _frame.ActualHeight : 100;
+                    double tx = _tailSide == "right" ? _frame.Width - 3 : -3;
+                    double ty = tailY - top - 5;
+                    if (ty < 4) ty = 4;
+                    if (ty > fh - 16) ty = fh - 16;
+                    _tail.HorizontalAlignment = HorizontalAlignment.Left;
+                    _tail.VerticalAlignment = VerticalAlignment.Top;
+                    _tail.Margin = new Thickness(tx, ty, 0, 0);
                 }
                 catch { }
             }, System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
-        private Border _tail;
+
 
         public void Close()
         {
@@ -2094,9 +2095,18 @@ namespace AgentHud
             if (Popup.IsOpen) { Popup.IsOpen = false; if (Closed != null) Closed(this); }
         }
 
-        public void Restyle(bool light, bool isDock)
+        public void Restyle(Brush frameBrush, bool darkText, bool isDock)
         {
-            // 漫画气泡配色固定（白底深字），皮肤变化不改变气泡本身
+            _frame.Background = frameBrush;
+            if (_tail != null) _tail.Background = frameBrush;
+            _darkText = darkText;
+            _title.Foreground = darkText ? Ui.Brush(0xF0, 0x14, 0x16, 0x1C) : Ui.Brush(0xFF, 0xF4, 0xF6, 0xFA);
+            _body.Foreground = darkText ? Ui.Brush(0xD0, 0x30, 0x32, 0x3A) : Ui.Brush(0xCC, 0xCC, 0xCC, 0xCC);
+            foreach (Button b in _btnRow == null ? new Button[0] : _btnRow.Children.OfType<Button>())
+            {
+                b.Foreground = darkText ? Ui.Brush(0xF0, 0x14, 0x16, 0x1C) : Ui.Brush(0xFF, 0xF4, 0xF6, 0xFA);
+                b.BorderBrush = darkText ? Ui.Brush(0x66, 0x10, 0x10, 0x14) : Ui.Brush(0x55, 0xFF, 0xFF, 0xFF);
+            }
         }
     }
 
@@ -2649,8 +2659,15 @@ namespace AgentHud
                 if (oldest == null) break;
                 oldest.Close();
             }
-            NotifyBubble nb = new NotifyBubble(id, app, kind, title, body, buttons, timeoutSec);
-            nb.Restyle(Skins.IsLight(_currentSkin), _currentSkin == "dock");
+            bool lightSkin = Skins.IsLight(_currentSkin);
+            Brush veil = _panel.Background;
+            var c = ((SolidColorBrush)veil).Color;
+            Brush bubbleBrush = new SolidColorBrush(Color.FromArgb(
+                (byte)Math.Min(255, c.A + 0x40), c.R, c.G, c.B));
+            bubbleBrush.Freeze();
+            bool darkText = lightSkin;
+            NotifyBubble nb = new NotifyBubble(id, app, kind, title, body, buttons, timeoutSec, bubbleBrush, darkText);
+            nb.Restyle(bubbleBrush, darkText, _currentSkin == "dock");
             nb.Closed += delegate { _bubbles.Remove(nb); };
             nb.ButtonClick += delegate(NotifyBubble b, string label)
             {
@@ -2710,20 +2727,29 @@ namespace AgentHud
                 headX = pt.X / dpix2; headY = pt.Y / dpix2;
             }
             catch { }
-            // 气泡在头顶上方；顶部没空间则在头顶下方（尾巴朝上）
-            bool above = headY - 130 > wa.Top + 4;
-            // 水平：优先头顶正上方，按方向偏好偏移，再钳进屏幕
-            double left = headX - 50;
-            if (dirSetting == "right" || (!toRight && dirSetting != "left")) { }
-            if (toRight) left = headX - 40;
-            else left = headX - (288 - 40);
+            // 气泡紧贴 HUD 侧边、垂直对齐角色头部，尾巴从角色头侧指向角色
+            bool leftSide = !toRight;   // toRight=True → 气泡在 HUD 右侧；False → 左侧
+            double bubbleW2 = 264, estH = kind == "confirm" ? 150 : 100;
+            double left = leftSide ? Left - bubbleW2 - 2 : Left + Width + 2;
             if (left < wa.Left + 4) left = wa.Left + 4;
-            if (left + 288 > wa.Right - 4) left = wa.Right - 4 - 288;
-            double top;
-            if (above) top = Math.Max(wa.Top + 4, headY - 124);
-            else top = headY + 10;
-            Dbg("bubble: id=" + id + " head=(" + (int)headX + "," + (int)headY + ") above=" + above + " left=" + (int)left + " top=" + (int)top);
-            nb.OpenAt(left, top, headX, above);
+            if (left + bubbleW2 > wa.Right - 4) left = wa.Right - 4 - bubbleW2;
+            double headY2 = Top + 90;
+            try
+            {
+                var row = app == "dsh" ? _dsRow : _zcRow;
+                double dpix2 = 1.0;
+                try { dpix2 = System.Windows.Media.VisualTreeHelper.GetDpi(this).PixelsPerDip; } catch { }
+                var pt = row.PointToScreen(new Point(row.ActualWidth / 2, row.ActualHeight / 2));
+                headY2 = pt.Y / dpix2;
+            }
+            catch { }
+            double top = headY2 - estH / 2;
+            if (top < wa.Top + 4) top = wa.Top + 4;
+            if (top + estH > wa.Bottom - 4) top = wa.Bottom - 4 - estH;
+            string tailSide = leftSide ? "right" : "left";
+            double tailY2 = headY2;
+            Dbg("bubble: id=" + id + " leftSide=" + leftSide + " left=" + (int)left + " top=" + (int)top);
+            nb.OpenAt(left, top, tailSide, tailY2);
         }
 
         private void DismissAllBubbles()
@@ -2811,7 +2837,13 @@ namespace AgentHud
             if (_sepMid != null) _sepMid.Background = _sepBrush;
             ApplySkinColors(light);
             bool isDockSkin = skin == "dock";
-            foreach (NotifyBubble b in _bubbles.ToList()) b.Restyle(light, isDockSkin);
+            Brush veil = _panel.Background;
+            var cc = ((SolidColorBrush)veil).Color;
+            Brush bb = new SolidColorBrush(Color.FromArgb(
+                (byte)Math.Min(255, cc.A + 0x40), cc.R, cc.G, cc.B));
+            bb.Freeze();
+            bool darkText = light;
+            foreach (NotifyBubble b in _bubbles.ToList()) b.Restyle(bb, darkText, isDockSkin);
         }
 
         // 把手/文本反色：皮肤应用与启动时都要调（启动时 ApplySkin 先于文本创建，需补调）
