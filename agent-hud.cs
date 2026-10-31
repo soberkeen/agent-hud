@@ -47,8 +47,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Agent HUD：HDR 开关 + DeepSeek 余额 + GLM 订阅用量悬浮侧边栏")]
 [assembly: AssemblyCompany("Agent HUD Project")]
 [assembly: AssemblyCopyright("Copyright (C) 2026 Agent HUD Project")]
-[assembly: AssemblyVersion("2.2.0.0")]
-[assembly: AssemblyFileVersion("2.2.0.0")]
+[assembly: AssemblyVersion("2.3.0.0")]
+[assembly: AssemblyFileVersion("2.3.0.0")]
 
 namespace AgentHud
 {
@@ -1331,7 +1331,7 @@ namespace AgentHud
             {
                 FontSize = 12,
                 Foreground = Ui.Brush(0x99, 0xFF, 0xFF, 0xFF),
-                Text = "Agent HUD v2.2 · HDR 开关 + DeepSeek 余额 + GLM 订阅用量",
+                Text = "Agent HUD v2.3 · HDR 开关 + DeepSeek 余额 + GLM 订阅用量",
             };
             p2.Children.Add(about);
             Button repo = DarkButton("GitHub 仓库", delegate { Ui.OpenUrl("https://github.com/soberkeen/agent-hud"); });
@@ -1596,7 +1596,12 @@ namespace AgentHud
             d["launch_dsh"] = _txtLaunchDs.Text.Trim();
             d["zc_mood_source"] = (string)_cmbMoodSrc.SelectedItem ?? "five";
             d["fullscreen_action"] = new string[] { "hide", "tuck", "none" }[Math.Max(0, _cmbFs.SelectedIndex)];
-            d["skin"] = new string[] { "dark", "glass", "blur" }[Math.Max(0, _cmbSkin.SelectedIndex)];
+            string newSkin = new string[] { "dark", "glass", "blur" }[Math.Max(0, _cmbSkin.SelectedIndex)];
+            d["skin"] = newSkin;
+            if (newSkin != _cfg["skin"] &&
+                (Skins.IsAcrylic(newSkin) != Skins.IsAcrylic(_cfg["skin"])))
+                System.Windows.MessageBox.Show("面板材质已保存。黑 ⇄ 玻璃/毛玻璃 切换需重启侧边栏后生效。",
+                    "Agent HUD", MessageBoxButton.OK, MessageBoxImage.Information);
             SettingsData.Save(d);
             SettingsData.SetAutostart(_chkAutostart.IsChecked == true);
             _host.ApplyConfigChanged();
@@ -1604,23 +1609,59 @@ namespace AgentHud
         }
     }
 
+    // ---------- Win11 系统级 Acrylic 背景（DWMWA_SYSTEMBACKDROP_TYPE，22H2+） ----------
+    internal static class DwmBackdrop
+    {
+        [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int val, int size);
+        [DllImport("dwmapi.dll")] private static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref MARGINS margins);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MARGINS { public int L, R, T, B; }
+
+        private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+        private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+        private const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
+
+        // Win11 22H2 = build 22621
+        public static bool Supported
+        {
+            get
+            {
+                try { return Environment.OSVersion.Version.Build >= 22621; }
+                catch { return false; }
+            }
+        }
+
+        public static void Apply(IntPtr hwnd, bool enable)
+        {
+            int dark = 1, acrylic = enable ? 3 : 1, round = 2;
+            MARGINS m = new MARGINS(); m.L = -1; m.R = -1; m.T = -1; m.B = -1;
+            DwmExtendFrameIntoClientArea(hwnd, ref m);
+            DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, 4);
+            DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ref acrylic, 4);
+            DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref round, 4);
+        }
+    }
+
     // ---------- 面板皮肤 ----------
     internal static class Skins
     {
-        // 返回 (Background, BorderBrush, BlurRadius, 是否需亚克力层)
+        // dark=分层窗口实心；glass/blur=DWM Acrylic 上的浅色调板
         public static Brush PanelBackground(string skin)
         {
-            if (skin == "glass") return Ui.Brush(0x3C, 0xFF, 0xFF, 0xFF);          // 半透白，透出桌面
-            if (skin == "blur") return Ui.Brush(0x8C, 0x1E, 0x22, 0x2C);           // 深蓝灰半透
+            if (skin == "glass") return Ui.Brush(0x28, 0xFF, 0xFF, 0xFF);          // acrylic 上的亮纱
+            if (skin == "blur") return Ui.Brush(0x66, 0x14, 0x18, 0x20);           // acrylic 上的深纱
             return Ui.Brush(0xE6, 0x20, 0x20, 0x20);                               // dark
         }
 
         public static Brush PanelBorder(string skin)
         {
-            if (skin == "glass") return Ui.Brush(0x55, 0xFF, 0xFF, 0xFF);
-            if (skin == "blur") return Ui.Brush(0x44, 0x7C, 0xFC, 0x9E);
+            if (skin == "glass") return Ui.Brush(0x60, 0xFF, 0xFF, 0xFF);
+            if (skin == "blur") return Ui.Brush(0x50, 0x7C, 0xFC, 0x9E);
             return Ui.Brush(0x33, 0xFF, 0xFF, 0xFF);
         }
+
+        public static bool IsAcrylic(string skin) { return skin == "glass" || skin == "blur"; }
 
         // 玻璃高光斜纹（顶部一道渐变提亮，模拟玻璃反光）
         public static Border GlossOverlay(string skin)
@@ -1701,6 +1742,7 @@ namespace AgentHud
         private Border _panel;
         private Border _gloss;
         private Grid _panelGrid;
+        private bool _acrylicMode;
         private bool _dfFrozen, _zcFrozen;   // 数据异常时定格，不瞎动
         private int _lastZcMood = -1;        // 额度分档迟滞用，防阈值附近反复横跳
 
@@ -1751,6 +1793,22 @@ namespace AgentHud
             ShowActivated = false;
 
             _cfg = SettingsData.Load();
+            string startSkin;
+            try { startSkin = _cfg["skin"]; } catch { startSkin = "dark"; }
+            bool acrylic = Skins.IsAcrylic(startSkin) && DwmBackdrop.Supported;
+            _acrylicMode = acrylic;
+            if (acrylic)
+            {
+                AllowsTransparency = false;   // 系统背景要求非分层窗口
+                var chrome = new System.Windows.Shell.WindowChrome
+                {
+                    GlassFrameThickness = new Thickness(-1),   // 背景延伸至整个窗口
+                    CaptionHeight = 0,
+                    UseAeroCaptionButtons = false,
+                    CornerRadius = new CornerRadius(0),
+                };
+                System.Windows.Shell.WindowChrome.SetWindowChrome(this, chrome);
+            }
 
             _panel = new Border
             {
@@ -1974,6 +2032,16 @@ namespace AgentHud
                 Dispatcher.BeginInvokeShutdown(DispatcherPriority.Background);
             };
 
+            SourceInitialized += delegate
+            {
+                try
+                {
+                    if (_acrylicMode)
+                        DwmBackdrop.Apply(new System.Windows.Interop.WindowInteropHelper(this).Handle, true);
+                }
+                catch { }
+            };
+
             SetupTray();
             PromoteTrayIcon();
 
@@ -2132,6 +2200,19 @@ namespace AgentHud
             try { skin = cfg["skin"]; } catch { skin = "dark"; }
             _panel.Background = Skins.PanelBackground(skin);
             _panel.BorderBrush = Skins.PanelBorder(skin);
+            if (Skins.IsAcrylic(skin) && DwmBackdrop.Supported)
+            {
+                // acrylic 模式：面板充满窗口，圆角交给 DWM（8px），材质由系统合成
+                _panel.CornerRadius = new CornerRadius(8);
+                _panel.Margin = new Thickness(0);
+                _panel.VerticalAlignment = VerticalAlignment.Stretch;
+            }
+            else
+            {
+                _panel.CornerRadius = new CornerRadius(16);
+                _panel.Margin = new Thickness(0);
+                _panel.VerticalAlignment = VerticalAlignment.Top;
+            }
             // 换肤：先移除旧高光层，再垫底插入新层
             if (_gloss != null && _panelGrid != null && _panelGrid.Children.Contains(_gloss))
                 _panelGrid.Children.Remove(_gloss);
