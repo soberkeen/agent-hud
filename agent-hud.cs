@@ -429,6 +429,9 @@ namespace AgentHud
             d["launch_dsh"] = "";                    // 双击 DeepSeek 角色启动的程序
             d["fullscreen_action"] = "hide";         // 前台全屏程序时：hide=隐藏 / tuck=缩边 / none=不动
             d["skin"] = "dark";                      // 面板材质：dark=黑 / glass=玻璃 / blur=毛玻璃
+            d["blur_tint"] = "C8141E26";             // 毛玻璃色调 #AARRGGBB
+            d["ds_warn"] = "20";                     // DeepSeek 余额 <X 元 → 紧张
+            d["ds_daze"] = "1";                      // DeepSeek 余额 ≤Y 元 → 痴呆
             return d;
         }
 
@@ -517,6 +520,10 @@ namespace AgentHud
             sb.AppendLine("launch_dsh=" + d["launch_dsh"]);
             sb.AppendLine("fullscreen_action=" + d["fullscreen_action"]);
             sb.AppendLine("skin=" + d["skin"]);
+            sb.AppendLine("blur_tint=" + d["blur_tint"]);
+            sb.AppendLine("# DeepSeek 余额分档（元）：低于 ds_warn 紧张，低于等于 ds_daze 痴呆");
+            sb.AppendLine("ds_warn=" + d["ds_warn"]);
+            sb.AppendLine("ds_daze=" + d["ds_daze"]);
             File.WriteAllText(IniPath, sb.ToString(), Encoding.UTF8);
         }
 
@@ -1206,7 +1213,7 @@ namespace AgentHud
         private readonly Widget _host;
         private readonly Dictionary<string, string> _cfg;
         private CheckBox _chkAutostart, _chkTray, _chkHover, _chkShowKey, _chkShowDs, _chkShowZc;
-        private ComboBox _cmbRefresh, _cmbLow, _cmbMid, _cmbMoodSrc, _cmbFs, _cmbSkin;
+        private ComboBox _cmbRefresh, _cmbLow, _cmbMid, _cmbMoodSrc, _cmbFs, _cmbSkin, _cmbDsWarn, _cmbDsDaze, _cmbBlurTint;
         private PasswordBox _pwdKey;
         private TextBox _txtKey, _txtDsBase, _txtZcBase, _txtLaunchZc, _txtLaunchDs;
         private TextBlock _testResult;
@@ -1273,6 +1280,7 @@ namespace AgentHud
             _cmbMoodSrc = AddCombo(p0, "GLM 表情由哪个额度驱动", new string[] { "five", "week", "worst" }, _cfg["zc_mood_source"]);
             AddTitle(p0, "面板材质");
             _cmbSkin = AddCombo(p0, "皮肤", new string[] { "黑色", "玻璃", "毛玻璃" }, SkinLabel(_cfg["skin"]));
+            _cmbBlurTint = AddCombo(p0, "毛玻璃色调", new string[] { "暗磨砂", "亮磨砂", "墨蓝磨砂" }, BlurTintLabel(_cfg["blur_tint"]));
             AddTitle(p0, "前台全屏程序（游戏/全屏视频）运行时");
             _cmbFs = AddCombo(p0, "侧边栏行为", new string[] { "自动隐藏", "缩边显示", "保持显示" }, FsLabel(_cfg["fullscreen_action"]));
             AddHint(p0, "five=5小时额度（推荐） / week=本周 / worst=两者取更差");
@@ -1280,6 +1288,9 @@ namespace AgentHud
             AddTitle(p0, "双击角色启动程序");
             _txtLaunchZc = AddText(p0, "双击 GLM 角色启动（留空=不启动）", _cfg["launch_zcode"]);
             _txtLaunchDs = AddText(p0, "双击 DeepSeek 角色启动（留空=不启动）", _cfg["launch_dsh"]);
+            AddTitle(p0, "DeepSeek 余额分档");
+            _cmbDsWarn = AddCombo(p0, "「紧张」阈值（余额低于此元数）", new string[] { "10", "20", "30", "50" }, _cfg["ds_warn"]);
+            _cmbDsDaze = AddCombo(p0, "「痴呆」阈值（余额低于等于此元数）", new string[] { "0.5", "1", "2", "5" }, _cfg["ds_daze"]);
 
             // ===== 页签 1：数据源 =====
             StackPanel p1 = new StackPanel { Margin = new Thickness(12), Visibility = Visibility.Collapsed };
@@ -1580,6 +1591,13 @@ namespace AgentHud
             sp.Children.Add(row);
         }
 
+        private string BlurTintLabel(string v)
+        {
+            if (v == "C8F4F6FA") return "亮磨砂";
+            if (v == "E0101620") return "墨蓝磨砂";
+            return "暗磨砂";
+        }
+
         private string SkinLabel(string v)
         {
             if (v == "glass") return "玻璃";
@@ -1625,8 +1643,11 @@ namespace AgentHud
             d["launch_dsh"] = _txtLaunchDs.Text.Trim();
             d["zc_mood_source"] = (string)_cmbMoodSrc.SelectedItem ?? "five";
             d["fullscreen_action"] = new string[] { "hide", "tuck", "none" }[Math.Max(0, _cmbFs.SelectedIndex)];
+            d["ds_warn"] = ComboValue(_cmbDsWarn, null);
+            d["ds_daze"] = ComboValue(_cmbDsDaze, null);
             string newSkin = new string[] { "dark", "glass", "blur" }[Math.Max(0, _cmbSkin.SelectedIndex)];
             d["skin"] = newSkin;
+            d["blur_tint"] = new string[] { "C8141E26", "C8F4F6FA", "E0101620" }[Math.Max(0, _cmbBlurTint.SelectedIndex)];
             if (newSkin != _cfg["skin"] &&
                 (Skins.IsAcrylic(newSkin) != Skins.IsAcrylic(_cfg["skin"])))
                 System.Windows.MessageBox.Show("面板材质已保存。黑 ⇄ 玻璃/毛玻璃 切换需重启侧边栏后生效。",
@@ -1635,6 +1656,64 @@ namespace AgentHud
             SettingsData.SetAutostart(_chkAutostart.IsChecked == true);
             _host.ApplyConfigChanged();
             Close();
+        }
+    }
+
+    // ---------- 真毛玻璃：SetWindowCompositionAttribute + ACRYLICBLURBEHIND ----------
+    internal static class AccentGlass
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        private struct AccentPolicy
+        {
+            public int AccentState;      // 4 = ACRYLICBLURBEHIND
+            public int AccentFlags;
+            public uint GradientColor;   // AABBGGRR：模糊后的色调叠加
+            public int AnimationId;
+        }
+        [StructLayout(LayoutKind.Sequential)]
+        private struct WCAData
+        {
+            public int Attribute;        // 19 = WCA_ACCENT_POLICY
+            public IntPtr Data;
+            public int SizeOfData;
+        }
+        [DllImport("user32.dll")] private static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WCAData data);
+
+        private const int WCA_ACCENT_POLICY = 19;
+        private const int ACCENT_ACRYLIC = 4;
+
+        // tint = #AARRGGBB
+        public static void Apply(IntPtr hwnd, string tint)
+        {
+            uint abgr = 0xC8141E26;   // 默认暗磨砂 #C8141E26
+            try
+            {
+                if (!string.IsNullOrEmpty(tint) && tint.Length == 8)
+                {
+                    uint a = Convert.ToUInt32(tint.Substring(0, 2), 16);
+                    uint r = Convert.ToUInt32(tint.Substring(2, 2), 16);
+                    uint g = Convert.ToUInt32(tint.Substring(4, 2), 16);
+                    uint b = Convert.ToUInt32(tint.Substring(6, 2), 16);
+                    abgr = (a << 24) | (b << 16) | (g << 8) | r;
+                }
+            }
+            catch { }
+            AccentPolicy pol = new AccentPolicy();
+            pol.AccentState = ACCENT_ACRYLIC;
+            pol.AccentFlags = 2;
+            pol.GradientColor = abgr;
+            pol.AnimationId = 0;
+            IntPtr ptr = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(AccentPolicy)));
+            try
+            {
+                Marshal.StructureToPtr(pol, ptr, false);
+                WCAData d = new WCAData();
+                d.Attribute = WCA_ACCENT_POLICY;
+                d.Data = ptr;
+                d.SizeOfData = Marshal.SizeOf(typeof(AccentPolicy));
+                SetWindowCompositionAttribute(hwnd, ref d);
+            }
+            finally { Marshal.FreeHGlobal(ptr); }
         }
     }
 
@@ -1772,6 +1851,7 @@ namespace AgentHud
         private Border _gloss;
         private Grid _panelGrid;
         private bool _acrylicMode;
+        private bool _acrylicApplied;
         private bool _dfFrozen, _zcFrozen;   // 数据异常时定格，不瞎动
         private int _lastZcMood = -1;        // 额度分档迟滞用，防阈值附近反复横跳
 
@@ -2066,7 +2146,21 @@ namespace AgentHud
                 try
                 {
                     if (_acrylicMode)
-                        DwmBackdrop.Apply(new System.Windows.Interop.WindowInteropHelper(this).Handle, true);
+                    {
+                        string sk;
+                        try { sk = _cfg["skin"]; } catch { sk = "glass"; }
+                        IntPtr h = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                        if (sk == "blur")
+                        {
+                            DwmBackdrop.Apply(h, false);                    // 不要系统背景
+                            AccentGlass.Apply(h, _cfg.ContainsKey("blur_tint") ? _cfg["blur_tint"] : "C8141E26");
+                        }
+                        else
+                        {
+                            DwmBackdrop.Apply(h, true);                     // 系统 Acrylic
+                        }
+                        _acrylicApplied = true;
+                    }
                 }
                 catch { }
             };
@@ -2235,6 +2329,11 @@ namespace AgentHud
                 _panel.CornerRadius = new CornerRadius(8);
                 _panel.Margin = new Thickness(0);
                 _panel.VerticalAlignment = VerticalAlignment.Stretch;
+                if (skin == "blur" && _acrylicApplied)
+                {
+                    // 真毛玻璃：面板近乎透明，Accent 色调承担材质；保存新色调时重打
+                    try { AccentGlass.Apply(new System.Windows.Interop.WindowInteropHelper(this).Handle, cfg["blur_tint"]); } catch { }
+                }
             }
             else
             {
@@ -2715,7 +2814,9 @@ namespace AgentHud
             {
                 double bal; bool num = double.TryParse(_ds.Balance, System.Globalization.NumberStyles.Any,
                     System.Globalization.CultureInfo.InvariantCulture, out bal);
-                int mood = !num ? 0 : (bal <= 1 ? 2 : (bal < 20 ? 1 : 0));
+                double dsWarn = SettingsData.Num(_cfg, "ds_warn", 20);
+                double dsDaze = SettingsData.Num(_cfg, "ds_daze", 1);
+                int mood = !num ? 0 : (bal <= dsDaze ? 2 : (bal < dsWarn ? 1 : 0));
                 _dfPlayer.SetSheet(mood == 0 ? "normal" : (mood == 1 ? "worry" : "daze"));
                 _dfMoodNow = mood;
                 _dfFrozen = false;
