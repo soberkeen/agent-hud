@@ -598,6 +598,7 @@ namespace AgentHud
     {
         public bool Ok; public LimitInfo Five = new LimitInfo(); public LimitInfo Week = new LimitInfo();
         public string Level = ""; public string Error;
+        public string TokenTail = "";   // 调试输出只允许露末四位
     }
 
     public static class DataFeed
@@ -709,7 +710,7 @@ namespace AgentHud
                 r.Currency = cur == null ? "CNY" : cur.ToString();
                 r.Ok = true;
             }
-            catch (Exception ex) { r.Error = ex.Message; }
+            catch (Exception ex) { r.Error = MaskSecret(key, ex.Message); }
             return r;
         }
 
@@ -748,6 +749,7 @@ namespace AgentHud
         public static ZcInfo FetchZcode(Dictionary<string, string> cfg)
         {
             ZcInfo r = new ZcInfo();
+            string tokenTail = "****";
             try
             {
                 string family;
@@ -790,9 +792,21 @@ namespace AgentHud
                 }
                 if (r.Five.RemainFrac < 0 && r.Week.RemainFrac < 0) throw new Exception("limits 里没有 5h/周额度");
                 r.Ok = true;
+                tokenTail = token.Length > 4 ? token.Substring(token.Length - 4) : "****";
             }
-            catch (Exception ex) { r.Error = ex.Message; }
+            catch (Exception ex) { r.Error = MaskSecret(tokenTail, ex.Message); }
+            finally { r.TokenTail = tokenTail; }
             return r;
+        }
+
+        // 脱敏：错误文本中若出现密钥/令牌，只保留末四位（调试输出红线）
+        public static string MaskSecret(string secret, string text)
+        {
+            if (string.IsNullOrEmpty(secret) || string.IsNullOrEmpty(text)) return text;
+            string key = secret.Trim();
+            if (key.Length < 4) return text;
+            string tail = key.Substring(key.Length - 4);
+            return text.Replace(key, "****" + tail);
         }
 
         public static string CurrencySymbol(string c)
@@ -814,6 +828,8 @@ namespace AgentHud
     // ---------- 小工具 ----------
     internal static class Ui
     {
+        public static bool DebugLogEnabled;   // 仅 -pintest/-hovertest 调试命令开启
+
         public static SolidColorBrush Brush(byte a, byte r, byte g, byte b)
         {
             SolidColorBrush b2 = new SolidColorBrush(Color.FromArgb(a, r, g, b));
@@ -1129,8 +1145,8 @@ namespace AgentHud
                     if (cmd == "settings") return RunGui(true, null);
                     if (cmd == "mockcycle") return RunGui(false, null, true);
                     if (cmd == "hover:ds" || cmd == "hover:zc") return RunGui(false, null, false, cmd.Substring(6));
-                    if (cmd == "pintest") return RunGui(false, null, false, null, true);
-                    if (cmd == "hovertest") return RunGui(false, null, false, null, false, true);
+                    if (cmd == "pintest") { Ui.DebugLogEnabled = true; return RunGui(false, null, false, null, true); }
+                    if (cmd == "hovertest") { Ui.DebugLogEnabled = true; return RunGui(false, null, false, null, false, true); }
                     return RunCli(args);
                 }
                 return RunGui(false, null);
@@ -1174,6 +1190,22 @@ namespace AgentHud
             return null;
         }
 
+        static bool SerializeContainsCommand(object hooksObj, string exe)
+        {
+            try
+            {
+                var list = hooksObj as IEnumerable<object>;
+                if (list == null) return false;
+                foreach (object h in list)
+                {
+                    var d = h as IDictionary<string, object>;
+                    if (d != null && d.ContainsKey("command") && ((string)d["command"]).IndexOf(exe, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+                }
+            }
+            catch { }
+            return false;
+        }
+
         static int InstallHooks()
         {
             int rc = 0;
@@ -1189,7 +1221,7 @@ namespace AgentHud
                     {
                         var hooks = root.ContainsKey("hooks") && root["hooks"] is IDictionary<string, object>
                             ? (IDictionary<string, object>)root["hooks"] : new Dictionary<string, object>();
-                        hooks["enabled"] = true;
+                        if (!hooks.ContainsKey("enabled")) hooks["enabled"] = true;   // 已有设置不覆盖
                         var events = hooks.ContainsKey("events") && hooks["events"] is IDictionary<string, object>
                             ? (IDictionary<string, object>)hooks["events"] : new Dictionary<string, object>();
                         string exe = Assembly.GetExecutingAssembly().Location;
@@ -1197,8 +1229,24 @@ namespace AgentHud
                             { "args", new object[] { "-notify", "任务完成", "ZCode 会话已结束", "zcode" } }, { "timeoutMs", 15000 } };
                         var permHook = new Dictionary<string, object> { { "type", "process" }, { "command", exe },
                             { "args", new object[] { "-confirm", "--title", "权限请求", "--body", "ZCode 请求执行操作，请在 HUD 上选择", "--app", "zcode", "--timeout", "110", "--wait" } }, { "timeoutMs", 120000 } };
-                        events["Stop"] = new object[] { new Dictionary<string, object> { { "hooks", new object[] { stopHook } } } };
-                        events["PermissionRequest"] = new object[] { new Dictionary<string, object> { { "hooks", new object[] { permHook } } } };
+                        // 追加而非覆盖：用户已有的同名事件 hook 保留
+                        foreach (var pair in new[] { new KeyValuePair<string, object>("Stop", (object)stopHook), new KeyValuePair<string, object>("PermissionRequest", (object)permHook) })
+                        {
+                            var list = events.ContainsKey(pair.Key) && events[pair.Key] is IEnumerable<object>
+                                ? new List<object>(((IEnumerable<object>)events[pair.Key])) : new List<object>();
+                            bool dup = false;
+                            foreach (object entry in list)
+                            {
+                                var d = entry as IDictionary<string, object>;
+                                if (d == null) continue;
+                                if (d.ContainsKey("hooks") && SerializeContainsCommand(d["hooks"], exe)) { dup = true; break; }
+                            }
+                            if (!dup)
+                            {
+                                list.Add(new Dictionary<string, object> { { "hooks", new object[] { pair.Value } } });
+                                events[pair.Key] = list.ToArray();
+                            }
+                        }
                         hooks["events"] = events;
                         root["hooks"] = hooks;
                         File.WriteAllText(cfgPath, js.Serialize(root), new UTF8Encoding(false));   // 无 BOM：Node JSON.parse 不接受 BOM
@@ -1249,7 +1297,7 @@ namespace AgentHud
             {
                 string title = "权限请求", body = "", appId = "zcode", buttons = "允许,拒绝", id = Guid.NewGuid().ToString("N");
                 int timeoutSec = 120; bool wait = false;
-                for (int i = 2; i < args.Length; i++)
+                for (int i = 1; i < args.Length; i++)
                 {
                     string a = args[i].ToLowerInvariant();
                     string val = i + 1 < args.Length ? args[i + 1] : null;
@@ -1317,13 +1365,14 @@ namespace AgentHud
                     }
                 case "debugdata":
                     {
+                        // 红线：本命令只允许输出 成败/HTTP 码/数字；密钥令牌最多末四位
                         Dictionary<string, string> cfg = SettingsData.Load();
                         DsInfo ds = DataFeed.FetchDeepSeek(cfg["deepseek_base"], cfg["deepseek_key"]);
-                        Out("DeepSeek: " + (ds.Ok ? "OK balance=" + ds.Balance + " " + ds.Currency + " granted=" + ds.Granted : "FAIL " + ds.Error));
+                        Out("DeepSeek: " + (ds.Ok ? "OK balance=" + ds.Balance + " " + ds.Currency + " granted=" + ds.Granted : "FAIL " + DataFeed.MaskSecret(cfg["deepseek_key"], ds.Error)));
                         ZcInfo zc = DataFeed.FetchZcode(cfg);
                         Out("ZCode: " + (zc.Ok
-                            ? "OK level=" + zc.Level + " 5h=" + zc.Five.RemainFrac.ToString("P0") + " (" + zc.Five.Used + "/" + zc.Five.Total + ") week=" + zc.Week.RemainFrac.ToString("P0") + " (" + zc.Week.Used + "/" + zc.Week.Total + ")"
-                            : "FAIL " + zc.Error));
+                            ? "OK level=" + zc.Level + " token=****" + zc.TokenTail + " 5h=" + zc.Five.RemainFrac.ToString("P0") + " (" + zc.Five.Used + "/" + zc.Five.Total + ") week=" + zc.Week.RemainFrac.ToString("P0") + " (" + zc.Week.Used + "/" + zc.Week.Total + ")"
+                            : "FAIL " + DataFeed.MaskSecret(zc.TokenTail, zc.Error)));
                         return (ds.Ok && zc.Ok) ? 0 : 2;
                     }
                 default:
@@ -1747,6 +1796,7 @@ namespace AgentHud
             };
             foreach (string o in options) cb.Items.Add(o + (suffix != null ? suffix : ""));
             int idx = Array.IndexOf(options, current);
+            if (idx < 0 && !string.IsNullOrEmpty(current)) { cb.Items.Add(current + (suffix != null ? suffix : "")); idx = cb.Items.Count - 1; }   // 自定义值保留，不静默改写
             cb.SelectedIndex = idx >= 0 ? idx : 0;
             sp.Children.Add(cb);
             return cb;
@@ -2144,11 +2194,13 @@ namespace AgentHud
             _outer.Children.Add(_tail);
             Popup.Child = _outer;
             if (kind != "confirm")
+            {
+                // notify：8 秒自动消失；confirm 的超时由 ShowEventBubble 的 toTimer 统一负责
+                // （此前双定时器先到者会写出 timeout:false 的响应，令 CLI 空转至真正期限）
                 _life = new DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
-            else
-                _life = new DispatcherTimer { Interval = TimeSpan.FromSeconds(Math.Max(5, timeoutSec)) };
-            _life.Tick += delegate { if (ButtonClick != null && Kind == "confirm") ButtonClick(this, null); Close(); };
-            _life.Start();
+                _life.Tick += delegate { Close(); };
+                _life.Start();
+            }
         }
 
         public bool Visible { get { return Popup.IsOpen; } }
@@ -2228,6 +2280,8 @@ namespace AgentHud
         private void UpdateHeightNow()
         {
             double target = ClosedHeightNow() + (_openDs ? DsDrawerH : 0) + (_openZc ? ZcDrawerH : 0);
+            if (_dock == "bottom" && Math.Abs(target - _windowH) > 0.5) Top += target - _windowH;
+            if (_dock == "bottom" && Math.Abs(target - _windowH) > 0.5) Top += target - _windowH;
             
             BeginAnimation(Window.HeightProperty, null);
             Height = target;
@@ -2282,6 +2336,7 @@ namespace AgentHud
         private DsInfo _ds;
         private ZcInfo _zc;
         private DateTime _lastFetch = DateTime.MinValue;
+        private int _fetchSeq;
 
         private bool _pinDs, _pinZc;         // 单击固定（两抽屉可同时固定）
         private string _hoverDrawer;         // 悬停中的行（null | "ds" | "zc"）
@@ -2670,8 +2725,7 @@ namespace AgentHud
             animClock.Start();
             _pollTimer.Start();
             UpdateDock(false);   // 上次关闭时若贴边，启动即恢复半隐藏
-            RefreshData();
-            _dataTimer.Start();
+            // RefreshData 已在 Start() 调过（审查发现的双拉取）
         }
 
         // ---------- 事件通道：drop 目录监听 → 角色气泡 ----------
@@ -2685,10 +2739,35 @@ namespace AgentHud
                 {
                     EnableRaisingEvents = true,
                     NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.FileName,
+                    InternalBufferSize = 64 * 1024,   // 默认 8KB 溢出会静默丢事件
                 };
                 _eventWatcher.Created += delegate(object s, FileSystemEventArgs e)
                 {
-                    Dispatcher.BeginInvoke((Action)delegate { HandleEventFile(e.FullPath); }, DispatcherPriority.Background);
+                    // 读文件的重试放线程池，不冻结 UI
+                    ThreadPool.QueueUserWorkItem(delegate
+                    {
+                        var evt = new System.Collections.Generic.KeyValuePair<string, string>(e.FullPath, e.Name);
+                        Dispatcher.BeginInvoke((Action)delegate { HandleEventFile(evt.Key); }, DispatcherPriority.Background);
+                    });
+                };
+                _eventWatcher.Changed += delegate(object s, FileSystemEventArgs e)
+                {
+                    // 写入方占用超过重试窗口时，Created 已被搁置——Changed 给它第二次机会（幂等去重）
+                    ThreadPool.QueueUserWorkItem(delegate
+                    {
+                        Dispatcher.BeginInvoke((Action)delegate { HandleEventFile(e.FullPath); }, DispatcherPriority.Background);
+                    });
+                };
+                _eventWatcher.Error += delegate
+                {
+                    // 缓冲溢出：重建监听，防永久失聪
+                    try
+                    {
+                        _eventWatcher.EnableRaisingEvents = false;
+                        _eventWatcher.Dispose();
+                        Dispatcher.BeginInvoke((Action)delegate { StartEventChannel(); }, DispatcherPriority.Background);
+                    }
+                    catch { }
                 };
             }
             catch { }
@@ -2709,6 +2788,8 @@ namespace AgentHud
                 var d = js.DeserializeObject(text) as IDictionary<string, object>;
                 if (d == null) return;
                 string id = d.ContainsKey("id") ? (d["id"] + "") : Guid.NewGuid().ToString("N");
+                // 防路径注入：id 只允许 32 位十六进制（本系统生成的 GUID-N 格式）
+                if (!System.Text.RegularExpressions.Regex.IsMatch(id, "^[0-9a-f]{32}$")) return;
                 if (_seenEventIds.Contains(id)) return;
                 _seenEventIds.Add(id);
                 string app = d.ContainsKey("app") ? (d["app"] + "") : "zcode";
@@ -3020,7 +3101,8 @@ namespace AgentHud
         private void LeaveDrawer(string sec)
         {
             if (_hoverDrawer == sec) _hoverDrawer = null;
-            // 不清 _hoverOpened：收回定时器需要知道该收谁
+            bool pending = sec == "ds" ? _pendDs : _pendZc;
+            if (pending) return;   // 单击挂起期间：pin 定时器会固定它，不排入收起（防开合闪烁）
             bool pinned = sec == "ds" ? _pinDs : _pinZc;
             if (!pinned) SchedulePanelHide();
         }
@@ -3118,6 +3200,7 @@ namespace AgentHud
             else if (!fs && _fsHidden)
             {
                 _fsHidden = false;
+                if (_userHidden) return;             // 用户主动藏的，不替他打开
                 if (_fsUsedHide) Visibility = Visibility.Visible;
                 else SetDockState(_dock.Length > 0 ? _dock : "right", false, true);
             }
@@ -3206,6 +3289,7 @@ namespace AgentHud
         // 布局调试：-popup:ds|zc 启动即固定展开对应抽屉
         private static void Dbg(string msg)
         {
+            if (!Ui.DebugLogEnabled) return;   // 生产路径静默，防 anim-err.log 无限增长
             try { System.IO.File.AppendAllText(Path.Combine(SettingsData.ExeDir, "anim-err.log"), msg + Environment.NewLine); } catch { }
         }
 
@@ -3416,6 +3500,7 @@ namespace AgentHud
         private void RefreshData()
         {
             _lastFetch = DateTime.Now;
+            int seq = ++_fetchSeq;
             Dictionary<string, string> cfg = _cfg;
             ThreadPool.QueueUserWorkItem(delegate
             {
@@ -3423,6 +3508,7 @@ namespace AgentHud
                 ZcInfo zc = DataFeed.FetchZcode(cfg);
                 Dispatcher.BeginInvoke((Action)delegate
                 {
+                    if (seq != _fetchSeq) return;   // 乱序回填防护：旧结果不覆盖新结果
                     _ds = ds; _zc = zc;
                     ApplyData();
                 });
@@ -3614,7 +3700,8 @@ namespace AgentHud
         // dock 边上的目标坐标：hidden=只露 sliver；revealed=完全贴边可见；另一轴夹在工作区内
         private Point GetDockPos(string edge, bool hidden)
         {
-            Rect wa = SystemParameters.WorkArea;
+            var m = MonitorWorkingArea();
+            Rect wa = new Rect(m.X, m.Y, m.Width, m.Height);
             double w = Width, h = Height;
             double cx = Math.Max(wa.Left, Math.Min(Left, wa.Right - w));
             double cy = Math.Max(wa.Top, Math.Min(Top, wa.Bottom - h));
@@ -3640,9 +3727,25 @@ namespace AgentHud
         }
 
         // 按当前窗口位置评估吸附：与某边缘的有符号距离 < SnapPx（负值=已越出边缘）即吸附并半隐藏
+        // HUD 所在显示器的工作区（物理像素 → DIP）；多显示器下吸附判定必须用它
+        private System.Drawing.Rectangle MonitorWorkingArea()
+        {
+            try
+            {
+                var wa = WF.Screen.FromHandle(new System.Windows.Interop.WindowInteropHelper(this).Handle).WorkingArea;
+                double dpix = 1.0;
+                try { dpix = System.Windows.Media.VisualTreeHelper.GetDpi(this).PixelsPerDip; } catch { }
+                return new System.Drawing.Rectangle(
+                    (int)Math.Round(wa.X / dpix), (int)Math.Round(wa.Y / dpix),
+                    (int)Math.Round(wa.Width / dpix), (int)Math.Round(wa.Height / dpix));
+            }
+            catch { var wa = SystemParameters.WorkArea; return new System.Drawing.Rectangle((int)wa.Left, (int)wa.Top, (int)wa.Width, (int)wa.Height); }
+        }
+
         private void UpdateDock(bool animate)
         {
-            Rect wa = SystemParameters.WorkArea;
+            var m = MonitorWorkingArea();
+            Rect wa = new Rect(m.X, m.Y, m.Width, m.Height);
             double L = Left, T = Top, w = Width, h = Height;
             string best = ""; double bestV = double.MaxValue;
             if (L - wa.Left < SnapPx && L - wa.Left < bestV) { best = "left"; bestV = L - wa.Left; }
