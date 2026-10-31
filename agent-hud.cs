@@ -1103,7 +1103,7 @@ namespace AgentHud
 
     public static class Program
     {
-        private static Mutex _mutex;
+        internal static Mutex _mutex;
 
         [STAThread]
         public static int Main(string[] args)
@@ -2205,6 +2205,9 @@ namespace AgentHud
                 _armTimer.Stop();
                 if (_tray != null) { _tray.Visible = false; _tray.Dispose(); }
                 try { File.WriteAllText(PosFile, ((int)Left).ToString() + "," + ((int)Top).ToString()); } catch { }
+                // 显式释放单实例锁：互斥锁本要等进程退出才释放，那期间快速重启的新实例
+                // 会拿不到锁（等锁 3 秒后静默退出）——表现为"闪退"。这里提前放锁，新实例即刻接班。
+                try { Program._mutex.ReleaseMutex(); } catch { }
                 Dispatcher.BeginInvokeShutdown(DispatcherPriority.Background);
             };
 
