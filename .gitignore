@@ -17,3 +17,4 @@ hdr-sidebar.ini
 anim-err.log
 crash.log
 tools/*.png
+tools/roundtrip-test.py
