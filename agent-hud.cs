@@ -2729,23 +2729,25 @@ namespace AgentHud
             catch { }
             // 气泡紧贴 HUD 侧边、垂直对齐角色头部，尾巴从角色头侧指向角色
             bool leftSide = !toRight;   // toRight=True → 气泡在 HUD 右侧；False → 左侧
-            double bubbleW2 = 264, estH = kind == "confirm" ? 150 : 100;
+            double bubbleW2 = 264;
             double left = leftSide ? Left - bubbleW2 - 2 : Left + Width + 2;
             if (left < wa.Left + 4) left = wa.Left + 4;
             if (left + bubbleW2 > wa.Right - 4) left = wa.Right - 4 - bubbleW2;
-            double headY2 = Top + 90;
+            // 气泡顶边 = 角色行上方的分割线；长度由文本自然决定
+            double dpixB = 1.0;
+            try { dpixB = System.Windows.Media.VisualTreeHelper.GetDpi(this).PixelsPerDip; } catch { }
+            double headY2 = Top + 90, top;
             try
             {
                 var row = app == "dsh" ? _dsRow : _zcRow;
-                double dpix2 = 1.0;
-                try { dpix2 = System.Windows.Media.VisualTreeHelper.GetDpi(this).PixelsPerDip; } catch { }
+                var sep = app == "dsh" ? _sepTop : _sepMid;
+                var pt2 = sep.PointToScreen(new Point(0, 0));
+                top = pt2.Y / dpixB;
                 var pt = row.PointToScreen(new Point(row.ActualWidth / 2, row.ActualHeight / 2));
-                headY2 = pt.Y / dpix2;
+                headY2 = pt.Y / dpixB;
             }
-            catch { }
-            double top = headY2 - estH / 2;
+            catch { top = headY2 - 50; }
             if (top < wa.Top + 4) top = wa.Top + 4;
-            if (top + estH > wa.Bottom - 4) top = wa.Bottom - 4 - estH;
             string tailSide = leftSide ? "right" : "left";
             double tailY2 = headY2;
             Dbg("bubble: id=" + id + " leftSide=" + leftSide + " left=" + (int)left + " top=" + (int)top);
