@@ -47,8 +47,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Agent HUD：HDR 开关 + DeepSeek 余额 + GLM 订阅用量悬浮侧边栏")]
 [assembly: AssemblyCompany("Agent HUD Project")]
 [assembly: AssemblyCopyright("Copyright (C) 2026 Agent HUD Project")]
-[assembly: AssemblyVersion("2.3.0.0")]
-[assembly: AssemblyFileVersion("2.3.0.0")]
+[assembly: AssemblyVersion("2.7.0.0")]
+[assembly: AssemblyFileVersion("2.7.0.0")]
 
 namespace AgentHud
 {
@@ -822,7 +822,7 @@ namespace AgentHud
         // 圆环零件（进度弧 + 底环 + 中央数字）
         public class RingParts
         {
-            public Grid Ring; public Ellipse Bg; public System.Windows.Shapes.Path Arc; public TextBlock Num;
+            public Grid Ring; public Ellipse Bg; public System.Windows.Shapes.Path Arc; public System.Windows.Shapes.Path ArcUnder; public TextBlock Num; public TextBlock NumMain;
             public double Size, Stroke;
         }
         public static RingParts MakeRing(double size, double stroke, double font)
@@ -838,7 +838,24 @@ namespace AgentHud
                 StrokeEndLineCap = PenLineCap.Round,
                 IsHitTestVisible = false,
             };
+            p.ArcUnder = new System.Windows.Shapes.Path
+            {
+                StrokeThickness = stroke + 1.6,   // 细黑边：彩色弧下面垫一圈更粗的黑弧
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                IsHitTestVisible = false,
+            };
             p.Num = new TextBlock
+            {
+                FontSize = font,
+                FontWeight = FontWeights.Bold,
+                Foreground = Ui.Brush(0xF0, 0x10, 0x10, 0x10),   // 数字黑边：黑色副本垫底偏移 1px
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(1, 1, 0, 0),
+                IsHitTestVisible = false,
+            };
+            p.NumMain = new TextBlock
             {
                 FontSize = font,
                 FontWeight = FontWeights.Bold,
@@ -848,8 +865,10 @@ namespace AgentHud
                 IsHitTestVisible = false,
             };
             p.Ring.Children.Add(p.Bg);
+            p.Ring.Children.Add(p.ArcUnder);
             p.Ring.Children.Add(p.Arc);
             p.Ring.Children.Add(p.Num);
+            p.Ring.Children.Add(p.NumMain);
             return p;
         }
 
@@ -858,11 +877,15 @@ namespace AgentHud
         {
             SolidColorBrush b = new SolidColorBrush(frac < 0 ? Ui.Col(0x99, 0x99, 0x99) : color);
             b.Freeze();
+            SolidColorBrush edge = Ui.Brush(0xE6, 0x10, 0x10, 0x10);   // 细黑边
             p.Arc.Stroke = b;
+            p.ArcUnder.Stroke = edge;
             p.Num.Foreground = frac >= 0 ? b : Ui.Brush(0xFF, 0x99, 0x99, 0x99);
+            p.Num.Text = frac < 0 ? "?" : ((int)Math.Round(frac * 100)).ToString();
+            p.NumMain.Text = p.Num.Text;
+            p.NumMain.Foreground = frac >= 0 ? b : Ui.Brush(0xFF, 0x99, 0x99, 0x99);
             p.Bg.Stroke = Ui.Brush(0x33, 0xFF, 0xFF, 0xFF);
-            if (frac < 0) { p.Arc.Data = null; p.Num.Text = "?"; return; }
-            p.Num.Text = ((int)Math.Round(frac * 100)).ToString();
+            if (frac < 0) { p.Arc.Data = null; return; }
             if (frac >= 0.995) { p.Arc.Data = null; p.Bg.Stroke = b; return; }   // 满圈直接画整圆
             double r = (p.Size - p.Stroke) / 2, c0 = p.Size / 2;
             double sweep = 360.0 * frac;
@@ -1305,7 +1328,7 @@ namespace AgentHud
             _chkShowZc = AddCheck(p0, "显示 GLM 角色（订阅额度）", SettingsData.Flag(_cfg, "show_zc"));
             _cmbMoodSrc = AddCombo(p0, "GLM 表情由哪个额度驱动", new string[] { "five", "week", "worst" }, _cfg["zc_mood_source"]);
             AddTitle(p0, "面板材质");
-            _cmbSkin = AddCombo(p0, "皮肤", new string[] { "黑色毛玻璃", "白色毛玻璃" }, SkinLabel(_cfg["skin"]));
+            _cmbSkin = AddCombo(p0, "皮肤", new string[] { "黑色毛玻璃", "白色毛玻璃", "macOS Dock" }, SkinLabel(_cfg["skin"]));
             _cmbBlurTint = AddCombo(p0, "毛玻璃蒙版浓度", new string[] { "清透", "标准", "深邃" }, VeilLabel(_cfg["blur_veil"]));
             AddTitle(p0, "前台全屏程序（游戏/全屏视频）运行时");
             _cmbFs = AddCombo(p0, "侧边栏行为", new string[] { "自动隐藏", "缩边显示", "保持显示" }, FsLabel(_cfg["fullscreen_action"]));
@@ -1640,6 +1663,7 @@ namespace AgentHud
         private string SkinLabel(string v)
         {
             if (v == "blur-light") return "白色毛玻璃";
+            if (v == "dock") return "macOS Dock";
             return "黑色毛玻璃";
         }
 
@@ -1662,7 +1686,7 @@ namespace AgentHud
             d["launch_dsh"] = _txtLaunchDs.Text.Trim();
             d["zc_mood_source"] = (string)_cmbMoodSrc.SelectedItem ?? "five";
             d["fullscreen_action"] = new string[] { "hide", "tuck", "none" }[Math.Max(0, _cmbFs.SelectedIndex)];
-            d["skin"] = new string[] { "blur-dark", "blur-light" }[Math.Max(0, _cmbSkin.SelectedIndex)];
+            d["skin"] = new string[] { "blur-dark", "blur-light", "dock" }[Math.Max(0, _cmbSkin.SelectedIndex)];
             d["blur_veil"] = new string[] { "18", "30", "55" }[Math.Max(0, _cmbBlurTint.SelectedIndex)];
             return d;
         }
@@ -1809,7 +1833,7 @@ namespace AgentHud
     {
         public static bool IsAcrylic(string skin) { return skin == "blur-dark" || skin == "blur-light"; }
 
-        public static bool IsLight(string skin) { return skin == "blur-light"; }
+        public static bool IsLight(string skin) { return skin == "blur-light" || skin == "dock"; }
 
         // 顶部高光层已移除：暗纱材质上它表现为 HDR 钮区域泛白
         public static Border GlossOverlay(string skin)
@@ -1826,7 +1850,7 @@ namespace AgentHud
         private const double SnapPx = 28;   // 距边缘多少像素内判定为吸附
         private const double DsDrawerH = 40;   // DeepSeek 抽屉展开高（纯余额一行）
         private const double ZcDrawerH = 54;   // ZCode 抽屉展开高（34 圈+标签）
-        private const double ClosedH = 254;    // 抽屉全收起（双角色）的窗口高度
+        private const double ClosedH = 268;    // 抽屉全收起（双角色）+ 把手行 的窗口高度
         private const double RowH = 76;        // 单个角色行高（隐藏角色时从 ClosedH 扣除）
         private double _windowH = ClosedH;     // 当前窗口高度基准值（动画起点/终点计算用）
 
@@ -1877,6 +1901,8 @@ namespace AgentHud
         private Grid _panelGrid;
         private string _currentSkin = "blur-dark";
         private Brush _sepBrush;
+        private Border _handlePill;
+        private readonly List<TextBlock> _ringCaptions = new List<TextBlock>();
         private bool _dfFrozen, _zcFrozen;   // 数据异常时定格，不瞎动
         private int _lastZcMood = -1;        // 额度分档迟滞用，防阈值附近反复横跳
 
@@ -1942,6 +1968,28 @@ namespace AgentHud
             _root = new Grid { Cursor = Cursors.Hand };
             _root.Children.Add(_panel);
             Content = _root;
+
+            // ---- Home Indicator 把手：拖动 HUD（放 HDR 钮上方，iPhone 主屏指示条样式） ----
+            Grid handle = new Grid { Height = 16, Background = Brushes.Transparent, Cursor = Cursors.SizeAll };
+            _handlePill = new Border
+            {
+                Width = 46, Height = 5,
+                CornerRadius = new CornerRadius(2.5),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false,
+            };
+            handle.Children.Add(_handlePill);
+            handle.MouseLeftButtonDown += delegate
+            {
+                StopPosAnim();
+                _downAt = DateTime.Now;
+                double preX = Left, preY = Top;
+                try { DragMove(); } catch { }
+                double moved = Math.Abs(Left - preX) + Math.Abs(Top - preY);
+                if (moved >= 4) UpdateDock(true);
+            };
+            stack.Children.Add(handle);
 
             // ---- HDR 圆钮（美化 + 双击确认防误触） ----
             Grid hdrArea = new Grid { Height = 76, Background = Brushes.Transparent, Cursor = Cursors.Hand };
@@ -2313,24 +2361,36 @@ namespace AgentHud
         {
             string skin;
             try { skin = cfg["skin"]; } catch { skin = "dark"; }
-            if (skin != "blur-dark" && skin != "blur-light") skin = "blur-dark";
+            if (skin != "blur-dark" && skin != "blur-light" && skin != "dock") skin = "blur-dark";
             _currentSkin = skin;
             bool light = Skins.IsLight(skin);
+            bool isDock = skin == "dock";
             // 纯透明蒙版（DeskGo 同款）：壁纸清晰直透，只轻微压暗不发白
             // 清透/标准/深邃 → 白毛 0x18/0x28/0x3C 暗纱（ DeskGo 式轻微压暗），黑毛 0x70/0x8C/0xA8
             byte va;
             try { va = Convert.ToByte(cfg["blur_veil"], 16); }
             catch { va = 0x30; }
-            if (light) _panel.Background = Ui.Brush(va, 0x0E, 0x10, 0x14);
+            if (isDock) _panel.Background = Ui.Brush(0xA2, 0xF6, 0xF7, 0xFA);   // Dock：亮雾面
+            else if (light) _panel.Background = Ui.Brush(va, 0x0E, 0x10, 0x14);
             else _panel.Background = Ui.Brush((byte)Math.Min(255, va + 0x50), 0x10, 0x12, 0x16);
-            _panel.BorderBrush = light ? Ui.Brush(0x4D, 0x00, 0x00, 0x00) : Ui.Brush(0x44, 0xFF, 0xFF, 0xFF);
-            _panel.CornerRadius = new CornerRadius(16);
+            _panel.BorderBrush = isDock ? Ui.Brush(0x5C, 0xFF, 0xFF, 0xFF)
+                : light ? Ui.Brush(0x4D, 0x00, 0x00, 0x00) : Ui.Brush(0x44, 0xFF, 0xFF, 0xFF);
+            // Dock 悬浮投影（面板层，随窗口形状）
+            _panel.Effect = isDock ? new DropShadowEffect { BlurRadius = 22, ShadowDepth = 6, Opacity = 0.38, Direction = 270 } : null;
+            _panel.CornerRadius = new CornerRadius(24);
             _panel.Margin = new Thickness(0);
             _panel.VerticalAlignment = VerticalAlignment.Top;
             // 分隔线随皮肤：白毛黑线，黑毛白线
             _sepBrush = light ? Ui.Brush(0x40, 0x00, 0x00, 0x00) : Ui.Brush(0x26, 0xFF, 0xFF, 0xFF);
             if (_sepTop != null) _sepTop.Background = _sepBrush;
             if (_sepMid != null) _sepMid.Background = _sepBrush;
+            // 把手指示条颜色随皮肤反色（iOS 式）：亮材质深条，暗材质白条
+            if (_handlePill != null) _handlePill.Background = light ? Ui.Brush(0x50, 0x10, 0x10, 0x14) : Ui.Brush(0x66, 0xFF, 0xFF, 0xFF);
+            // 文本随皮肤反色：亮材质深字，暗材质白字
+            bool lightText = !light;
+            if (_dsBalanceText != null) _dsBalanceText.Foreground = light ? Ui.Brush(0xE0, 0x14, 0x16, 0x1C) : Ui.Brush(0xFF, 0xF4, 0xF6, 0xFA);
+            foreach (TextBlock cap in _ringCaptions)
+                cap.Foreground = light ? Ui.Brush(0x8C, 0x10, 0x10, 0x14) : Ui.Brush(0x99, 0xFF, 0xFF, 0xFF);
         }
 
         // 设置页实时预览：把改动立即套到 HUD（不落盘）
@@ -2645,6 +2705,7 @@ namespace AgentHud
                 Margin = new Thickness(0, 2, 0, 0),
                 IsHitTestVisible = false,
             };
+            _ringCaptions.Add(cap);
             cell.Children.Add(cap);
             return cell;
         }
