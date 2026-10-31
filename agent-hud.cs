@@ -2546,8 +2546,8 @@ namespace AgentHud
             }
             if (sec == "ds") _openDs = open; else _openZc = open;
 
-            // 窗口高度跟随抽屉伸缩，底部不留透明空底
-            double newH = ClosedHeightNow() + (open ? target : 0);
+            // 窗口高度跟随抽屉伸缩（两个抽屉独立求和，底部不留透明空底）
+            double newH = ClosedHeightNow() + (_openDs ? DsDrawerH : 0) + (_openZc ? ZcDrawerH : 0);
             Duration wdur = new Duration(TimeSpan.FromMilliseconds(180));
             CubicEase wease = new CubicEase(); wease.EasingMode = EasingMode.EaseOut;
             DoubleAnimation aw = new DoubleAnimation(newH, wdur);
