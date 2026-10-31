@@ -43,6 +43,7 @@ Get-ChildItem $PSScriptRoot -Filter 'anim-*.gif' | ForEach-Object {
     -r:"$wpf\WindowsBase.dll" -r:"$framework\System.Xaml.dll" `
     -r:"$framework\System.Web.Extensions.dll" `
     -r:"$framework\System.Windows.Forms.dll" -r:"$framework\System.Drawing.dll" `
+    -r:"C:\Windows\Microsoft.NET\assembly\GAC_MSIL\UIAutomationClient\v4.0_4.0.0.0__31bf3856ad364e35\UIAutomationClient.dll" -r:"C:\Windows\Microsoft.NET\assembly\GAC_MSIL\UIAutomationTypes\v4.0_4.0.0.0__31bf3856ad364e35\UIAutomationTypes.dll" `
     $resDfy $resZc $src
     if ($LASTEXITCODE -ne 0) { throw "hdr-toggle.exe 编译失败 (exit $LASTEXITCODE)" }
 }
@@ -52,6 +53,7 @@ $resArg = '-res:{0},HDR.Toggle.app.exe' -f $appExe
 & $csc -nologo -target:winexe -out:$setupExe -win32icon:$icon -win32manifest:$setupManifest `
     -r:"$framework\Microsoft.CSharp.dll" -r:"$framework\System.dll" `
     -r:"$framework\System.Windows.Forms.dll" -r:"$framework\System.Drawing.dll" `
+    -r:"C:\Windows\Microsoft.NET\assembly\GAC_MSIL\UIAutomationClient\v4.0_4.0.0.0__31bf3856ad364e35\UIAutomationClient.dll" -r:"C:\Windows\Microsoft.NET\assembly\GAC_MSIL\UIAutomationTypes\v4.0_4.0.0.0__31bf3856ad364e35\UIAutomationTypes.dll" `
     $resArg $resAssets $setupSrc
 if ($LASTEXITCODE -ne 0) { throw "安装器编译失败 (exit $LASTEXITCODE)" }
 

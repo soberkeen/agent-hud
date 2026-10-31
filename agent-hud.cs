@@ -29,6 +29,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Web.Script.Serialization;
+using SA = System.Windows.Automation;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -48,8 +49,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Agent HUD：HDR 开关 + DeepSeek 余额 + GLM 订阅用量悬浮侧边栏")]
 [assembly: AssemblyCompany("Agent HUD Project")]
 [assembly: AssemblyCopyright("Copyright (C) 2026 Agent HUD Project")]
-[assembly: AssemblyVersion("2.9.0.0")]
-[assembly: AssemblyFileVersion("2.9.0.0")]
+[assembly: AssemblyVersion("2.9.1.0")]
+[assembly: AssemblyFileVersion("2.9.1.0")]
 
 namespace AgentHud
 {
@@ -432,6 +433,7 @@ namespace AgentHud
             d["skin"] = "dark";                      // 面板材质：dark=黑 / glass=玻璃 / blur=毛玻璃
             d["blur_tint"] = "C8141E26";             // （仅旧系统生效）毛玻璃 Accent 色调
             d["bubble_dir"] = "auto";                // 气泡弹出方向：auto / right / left
+            d["watch_toasts"] = "true";              // 接管 DSH/ZCode 的系统通知 → 角色气泡
             d["blur_veil"] = "30";                   // 毛玻璃蒙版浓度（十六进制 alpha，越小越透）
             d["ds_warn"] = "20";                     // DeepSeek 余额 <X 元 → 紧张
             d["ds_daze"] = "1";                      // DeepSeek 余额 ≤Y 元 → 痴呆
@@ -529,6 +531,8 @@ namespace AgentHud
             sb.AppendLine("blur_veil=" + d["blur_veil"]);
             sb.AppendLine("# 气泡弹出方向：auto（按吸附边自动）/ right / left");
             sb.AppendLine("bubble_dir=" + d["bubble_dir"]);
+            sb.AppendLine("# 接管 DSH/ZCode 桌面端的系统通知 → 角色气泡（关掉后只剩 HUD 自身通道）");
+            sb.AppendLine("watch_toasts=" + d["watch_toasts"]);
             sb.AppendLine("# DeepSeek 余额分档（元）：低于 ds_warn 紧张，低于等于 ds_daze 痴呆");
             sb.AppendLine("ds_warn=" + d["ds_warn"]);
             sb.AppendLine("ds_daze=" + d["ds_daze"]);
@@ -1460,7 +1464,7 @@ namespace AgentHud
         private readonly Widget _host;
         private readonly Dictionary<string, string> _cfg;
         private readonly Dictionary<string, string> _initialCfg;
-        private CheckBox _chkAutostart, _chkTray, _chkHover, _chkShowKey, _chkShowDs, _chkShowZc;
+        private CheckBox _chkAutostart, _chkTray, _chkHover, _chkShowKey, _chkShowDs, _chkShowZc, _chkWatchToasts;
         private ComboBox _cmbRefresh, _cmbLow, _cmbMid, _cmbMoodSrc, _cmbFs, _cmbSkin, _cmbBlurTint, _cmbBubbleDir, _cmbDsWarn, _cmbDsDaze;
         private PasswordBox _pwdKey;
         private TextBox _txtKey, _txtDsBase, _txtZcBase, _txtLaunchZc, _txtLaunchDs;
@@ -1521,6 +1525,7 @@ namespace AgentHud
             StackPanel p0 = new StackPanel { Margin = new Thickness(12), Visibility = Visibility.Visible };
             pages.Children.Add(p0); _tabPages.Add(p0);
             AddTab(bar, "通用", 0);
+            _chkWatchToasts = AddCheck(p0, "接管 DSH/ZCode 的系统通知（弹出角色气泡）", SettingsData.Flag(_cfg, "watch_toasts"));
             _chkAutostart = AddCheck(p0, "开机自动启动侧边栏", SettingsData.GetAutostart());
             _chkTray = AddCheck(p0, "显示托盘图标（右键托盘可打开设置）", SettingsData.Flag(_cfg, "show_tray"));
             _chkHover = AddCheck(p0, "悬停图标时弹出详情抽屉", SettingsData.Flag(_cfg, "hover_details"));
@@ -1665,7 +1670,7 @@ namespace AgentHud
             // 实时预览挂接：选择类控件一变就套用
             foreach (ComboBox cb in new ComboBox[] { _cmbRefresh, _cmbLow, _cmbMid, _cmbMoodSrc, _cmbFs, _cmbSkin, _cmbBlurTint, _cmbBubbleDir, _cmbDsWarn, _cmbDsDaze })
                 cb.SelectionChanged += delegate { LivePreview(); };
-            foreach (CheckBox ck in new CheckBox[] { _chkTray, _chkHover, _chkShowDs, _chkShowZc })
+            foreach (CheckBox ck in new CheckBox[] { _chkWatchToasts, _chkTray, _chkHover, _chkShowDs, _chkShowZc })
                 ck.Click += delegate { LivePreview(); };
             _txtLaunchZc.TextChanged += delegate { LivePreview(); };
             _txtLaunchDs.TextChanged += delegate { LivePreview(); };
@@ -2311,7 +2316,13 @@ namespace AgentHud
         private Border _sepTop, _sepMid;
         private FramePlayer _dfPlayer, _zcPlayer;
         private System.Diagnostics.Stopwatch _animClock;
+        private readonly HashSet<string> _seenToastTexts = new HashSet<string>();
+        [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lp);
+        [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr hWnd, StringBuilder sb, int max);
+        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lp);
         private FileSystemWatcher _eventWatcher;
+        private DispatcherTimer _toastTimer;
         private readonly List<NotifyBubble> _bubbles = new List<NotifyBubble>();
         private readonly HashSet<string> _seenEventIds = new HashSet<string>();
         private Border _panel;
@@ -2682,6 +2693,7 @@ namespace AgentHud
             UpdateHeightNow();
             UpdateVisual(false);
             StartEventChannel();
+            StartToastWatcher();
             if (MockCycle)
             {
                 _mockMood = 0;
@@ -2726,6 +2738,96 @@ namespace AgentHud
             _pollTimer.Start();
             UpdateDock(false);   // 上次关闭时若贴边，启动即恢复半隐藏
             // RefreshData 已在 Start() 调过（审查发现的双拉取）
+        }
+
+        // ---------- 系统 toast 监听：DSH/ZCode Desktop 的通知 → 角色气泡镜像 ----------
+        // DSH Desktop 与 ZCode Desktop 的完成/失败类事件都会发 Windows toast；
+        // 监听 CoreWindow 新窗口 → UIA 提取文本 → 按来源分发到对应角色。
+        // 这是"镜像"而非"拦截"：系统 toast 本身仍会出现（几秒后自动收进通知中心）。
+        private void StartToastWatcher()
+        {
+            if (!SettingsData.Flag(_cfg, "watch_toasts")) return;
+            _toastTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+            _toastTimer.Tick += delegate { PollToasts(); };
+            _toastTimer.Start();
+        }
+
+        private static bool IsToastWindow(IntPtr hwnd)
+        {
+            StringBuilder cls = new StringBuilder(64);
+            GetClassName(hwnd, cls, 64);
+            return cls.ToString() == "Windows.UI.Core.CoreWindow";
+        }
+
+        private void PollToasts()
+        {
+            try
+            {
+                // Win11 的 toast 复用常驻 CoreWindow（不创建新窗口）——轮询其 UIA 文本变化
+                EnumWindows(delegate(IntPtr h, IntPtr lp)
+                {
+                    if (!IsWindowVisible(h) || !IsToastWindow(h)) return true;
+                    string text = ToastText(h);
+                    if (string.IsNullOrEmpty(text) || text.Length < 6) return true;
+                    if (_seenToastTexts.Contains(text)) return true;
+                    _seenToastTexts.Add(text);
+                    if (_seenToastTexts.Count > 256) _seenToastTexts.Clear();
+                    RouteToast(text);
+                    return true;
+                }, IntPtr.Zero);
+            }
+            catch { }
+        }
+
+        private static string EnumVisibleWindows(Func<IntPtr, bool> fn)
+        {
+            // 占位：真枚举在 PollToasts 内联实现（避免委托捕获冲突）
+            return null;
+        }
+
+        private string ToastText(IntPtr hwnd)
+        {
+            try
+            {
+                var ae = SA.AutomationElement.FromHandle(hwnd);
+                if (ae == null) return null;
+                string name = ae.Current.Name;
+                if (!string.IsNullOrEmpty(name) && name.Length >= 6) return name;
+                // Name 不足时走子树收集文本
+                var sb = new StringBuilder();
+                var kids = ae.FindAll(SA.TreeScope.Descendants, SA.Condition.TrueCondition);
+                foreach (SA.AutomationElement k in kids)
+                {
+                    string t = k.Current.Name;
+                    if (!string.IsNullOrEmpty(t)) sb.Append(t).Append('。');
+                }
+                return sb.Length > 0 ? sb.ToString() : null;
+            }
+            catch { return null; }
+        }
+
+        private void RouteToast(string text)
+        {
+            // 来源判定：应用显示名通常在 toast 文本头部
+            string app = null;
+            if (text.IndexOf("DSH", StringComparison.OrdinalIgnoreCase) >= 0) app = "dsh";
+            else if (text.IndexOf("ZCode", StringComparison.OrdinalIgnoreCase) >= 0) app = "zcode";
+            if (app == null) return;   // 非 DSH/ZCode 的系统通知不接管
+            // 文案结构（Win11 toast 的 UIA Name）：「应用名, 标题。正文」或「标题。正文」
+            string rest = text;
+            int comma = text.IndexOf('，');
+            if (comma < 0) comma = text.IndexOf(',');
+            if (comma >= 0 && comma < 30) rest = text.Substring(comma + 1).TrimStart(' ', ',');
+            string title = rest, body = "";
+            int dot = rest.IndexOf('。');
+            if (dot > 0 && dot < 40) { title = rest.Substring(0, dot).Trim(); body = rest.Substring(dot + 1).Trim(); }
+            string id = "toast" + DateTime.Now.Ticks.ToString("x") + app;
+            ShowEventBubble(id, app, "notify", title, body, null, 8);
+        }
+
+        private void EnumVisibleWindowsHelper(Func<IntPtr, bool> fn)
+        {
+            EnumVisibleWindows(fn);
         }
 
         // ---------- 事件通道：drop 目录监听 → 角色气泡 ----------
