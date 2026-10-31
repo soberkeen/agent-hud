@@ -2601,6 +2601,11 @@ namespace AgentHud
             StackPanel content = sec == "ds" ? _dsDrawerContent : _zcDrawerContent;
             TranslateTransform slide = sec == "ds" ? _dsSlide : _zcSlide;
             double target = sec == "ds" ? DsDrawerH : ZcDrawerH;
+            bool wasOpen = sec == "ds" ? _openDs : _openZc;
+            // 已处于目标状态（悬停已展开、单击转固定）：只更新状态，不重放入场动画，避免画面抽动
+            if (open && wasOpen) { if (sec == "ds") _openDs = true; else _openZc = true; }
+            else
+            {
             Duration dur = new Duration(TimeSpan.FromMilliseconds(180));
             CubicEase ease = new CubicEase(); ease.EasingMode = EasingMode.EaseOut;
             // 从当前值出发（DoubleAnimation 只给 To），中断时无跳变
@@ -2616,6 +2621,7 @@ namespace AgentHud
                 DoubleAnimation asl = new DoubleAnimation(-10, 0, dur);
                 asl.EasingFunction = ease;
                 slide.BeginAnimation(TranslateTransform.YProperty, asl);
+            }
             }
             if (sec == "ds") _openDs = open; else _openZc = open;
             if (!open && _hoverOpened == sec) _hoverOpened = null;
