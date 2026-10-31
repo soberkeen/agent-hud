@@ -2194,7 +2194,7 @@ namespace AgentHud
                         }
                         else
                         {
-                            DwmBackdrop.Apply(h, true, !Skins.IsLight(sk));   // 黑毛=暗 Acrylic，白毛=亮 Acrylic
+                            DwmBackdrop.Apply(h, true, !Skins.IsLight(sk));   // 白毛=亮 Acrylic（实测透），黑毛=暗 Acrylic
                         }
                         _acrylicApplied = true;
                     }
@@ -2364,8 +2364,8 @@ namespace AgentHud
             byte va;
             try { va = Convert.ToByte(cfg["blur_veil"], 16); }
             catch { va = 0x30; }
-            // 材质 = 系统 Acrylic + 单层蒙版：黑毛盖深纱，白毛盖白纱
-            _panel.Background = light ? Ui.Brush(va, 0xFA, 0xFB, 0xFE) : Ui.Brush(va, 0x14, 0x18, 0x20);
+            // 材质 = 系统 Acrylic（白毛=亮色调透，黑毛=暗色调沉）+ 单层蒙版
+            _panel.Background = light ? Ui.Brush(va, 0xF4, 0xF6, 0xFA) : Ui.Brush(va, 0x14, 0x18, 0x20);
             _panel.BorderBrush = light ? Ui.Brush(0x4D, 0x00, 0x00, 0x00) : Ui.Brush(0x44, 0xFF, 0xFF, 0xFF);
             // 面板圆角归零：外 R 角全交 DWM，消除双 R 角
             _panel.CornerRadius = new CornerRadius(0);
