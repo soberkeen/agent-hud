@@ -1936,23 +1936,6 @@ namespace AgentHud
             ShowActivated = false;
 
             _cfg = SettingsData.Load();
-            string startSkin;
-            try { startSkin = _cfg["skin"]; } catch { startSkin = "dark"; }
-            bool acrylic = Skins.IsAcrylic(startSkin) && DwmBackdrop.Supported;
-            _acrylicMode = acrylic;
-            if (acrylic)
-            {
-                AllowsTransparency = false;   // 系统背景要求非分层窗口
-                var chrome = new System.Windows.Shell.WindowChrome
-                {
-                    GlassFrameThickness = new Thickness(-1),   // 背景延伸至整个窗口
-                    CaptionHeight = 0,
-                    UseAeroCaptionButtons = false,
-                    CornerRadius = new CornerRadius(0),
-                };
-                System.Windows.Shell.WindowChrome.SetWindowChrome(this, chrome);
-            }
-
             _panel = new Border
             {
                 CornerRadius = new CornerRadius(16),
@@ -2175,33 +2158,6 @@ namespace AgentHud
                 Dispatcher.BeginInvokeShutdown(DispatcherPriority.Background);
             };
 
-            SourceInitialized += delegate
-            {
-                try
-                {
-                    if (_acrylicMode)
-                    {
-                        string sk;
-                        try { sk = _cfg["skin"]; } catch { sk = "glass"; }
-                        IntPtr h = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-                        // Win11 24H2 (build 26100) 移除了 undocumented Accent Acrylic——
-                        // 忽略它窗口会渲染成黑底。24H2+ 一律用系统 Acrylic，旧系统才走 Accent。
-                        bool legacyAccent = Environment.OSVersion.Version.Build < 26100;
-                        if (legacyAccent)
-                        {
-                            DwmBackdrop.Apply(h, false, true);
-                            AccentGlass.Apply(h, _cfg.ContainsKey("blur_tint") ? _cfg["blur_tint"] : "C8141E26");
-                        }
-                        else
-                        {
-                            DwmBackdrop.Apply(h, true, !Skins.IsLight(sk));   // 白毛=亮 Acrylic（实测透），黑毛=暗 Acrylic
-                        }
-                        _acrylicApplied = true;
-                    }
-                }
-                catch { }
-            };
-
             SetupTray();
             PromoteTrayIcon();
 
@@ -2361,21 +2317,22 @@ namespace AgentHud
             if (skin != "blur-dark" && skin != "blur-light") skin = "blur-dark";
             _currentSkin = skin;
             bool light = Skins.IsLight(skin);
+            // 纯透明蒙版（DeskGo 同款）：壁纸清晰直透，只有一层色纱
+            // 清透/标准/深邃 → 白毛 0x20/0x38/0x55，黑毛 0x70/0x8C/0xA8
             byte va;
             try { va = Convert.ToByte(cfg["blur_veil"], 16); }
             catch { va = 0x30; }
-            // 材质 = 系统 Acrylic（白毛=亮色调透，黑毛=暗色调沉）+ 单层蒙版
-            _panel.Background = light ? Ui.Brush(va, 0xF4, 0xF6, 0xFA) : Ui.Brush(va, 0x14, 0x18, 0x20);
+            if (light) _panel.Background = Ui.Brush(va, 0xFF, 0xFF, 0xFF);
+            else _panel.Background = Ui.Brush((byte)Math.Min(255, va + 0x50), 0x10, 0x12, 0x16);
             _panel.BorderBrush = light ? Ui.Brush(0x4D, 0x00, 0x00, 0x00) : Ui.Brush(0x44, 0xFF, 0xFF, 0xFF);
-            // 面板圆角归零：外 R 角全交 DWM，消除双 R 角
-            _panel.CornerRadius = new CornerRadius(0);
+            _panel.CornerRadius = new CornerRadius(16);
             _panel.Margin = new Thickness(0);
-            _panel.VerticalAlignment = VerticalAlignment.Stretch;
+            _panel.VerticalAlignment = VerticalAlignment.Top;
             // 分隔线随皮肤：白毛黑线，黑毛白线
             _sepBrush = light ? Ui.Brush(0x40, 0x00, 0x00, 0x00) : Ui.Brush(0x26, 0xFF, 0xFF, 0xFF);
             if (_sepTop != null) _sepTop.Background = _sepBrush;
             if (_sepMid != null) _sepMid.Background = _sepBrush;
-            if (_gloss != null) _gloss.CornerRadius = new CornerRadius(0);
+            if (_gloss != null) _gloss.CornerRadius = new CornerRadius(16, 16, 8, 8);
             // dark/light 只是 DWM 标志位差异：已有句柄时即时重打，无需重启
             if (_acrylicApplied)
             {
@@ -2954,8 +2911,7 @@ namespace AgentHud
             ca.EasingFunction = ease;
             ColorAnimation ga = new ColorAnimation(glow, dur);
             ga.EasingFunction = ease;
-            double glowTarget = Skins.IsAcrylic(_currentSkin) ? 0 : glowOpacity;   // 毛玻璃上光晕呈白圈，去掉
-            DoubleAnimation go = new DoubleAnimation(glowTarget, dur);
+            DoubleAnimation go = new DoubleAnimation(0, dur);   // 纯透明材质上光晕即白圈，全部去掉
             _hdrFill.BeginAnimation(SolidColorBrush.ColorProperty, ca);
             _hdrGlow.BeginAnimation(DropShadowEffect.ColorProperty, ga);
             _hdrGlow.BeginAnimation(DropShadowEffect.OpacityProperty, go);
