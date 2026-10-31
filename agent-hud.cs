@@ -29,6 +29,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Web.Script.Serialization;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -47,8 +48,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Agent HUD：HDR 开关 + DeepSeek 余额 + GLM 订阅用量悬浮侧边栏")]
 [assembly: AssemblyCompany("Agent HUD Project")]
 [assembly: AssemblyCopyright("Copyright (C) 2026 Agent HUD Project")]
-[assembly: AssemblyVersion("2.7.0.0")]
-[assembly: AssemblyFileVersion("2.7.0.0")]
+[assembly: AssemblyVersion("2.8.0.0")]
+[assembly: AssemblyFileVersion("2.8.0.0")]
 
 namespace AgentHud
 {
@@ -430,6 +431,7 @@ namespace AgentHud
             d["fullscreen_action"] = "hide";         // 前台全屏程序时：hide=隐藏 / tuck=缩边 / none=不动
             d["skin"] = "dark";                      // 面板材质：dark=黑 / glass=玻璃 / blur=毛玻璃
             d["blur_tint"] = "C8141E26";             // （仅旧系统生效）毛玻璃 Accent 色调
+            d["bubble_dir"] = "auto";                // 气泡弹出方向：auto / right / left
             d["blur_veil"] = "30";                   // 毛玻璃蒙版浓度（十六进制 alpha，越小越透）
             d["ds_warn"] = "20";                     // DeepSeek 余额 <X 元 → 紧张
             d["ds_daze"] = "1";                      // DeepSeek 余额 ≤Y 元 → 痴呆
@@ -525,6 +527,8 @@ namespace AgentHud
             sb.AppendLine("skin=" + d["skin"]);
             sb.AppendLine("blur_tint=" + d["blur_tint"]);
             sb.AppendLine("blur_veil=" + d["blur_veil"]);
+            sb.AppendLine("# 气泡弹出方向：auto（按吸附边自动）/ right / left");
+            sb.AppendLine("bubble_dir=" + d["bubble_dir"]);
             sb.AppendLine("# DeepSeek 余额分档（元）：低于 ds_warn 紧张，低于等于 ds_daze 痴呆");
             sb.AppendLine("ds_warn=" + d["ds_warn"]);
             sb.AppendLine("ds_daze=" + d["ds_daze"]);
@@ -1127,7 +1131,7 @@ namespace AgentHud
                     if (cmd == "hover:ds" || cmd == "hover:zc") return RunGui(false, null, false, cmd.Substring(6));
                     if (cmd == "pintest") return RunGui(false, null, false, null, true);
                     if (cmd == "hovertest") return RunGui(false, null, false, null, false, true);
-                    return RunCli(cmd);
+                    return RunCli(args);
                 }
                 return RunGui(false, null);
             }
@@ -1138,9 +1142,61 @@ namespace AgentHud
             }
         }
 
-        static int RunCli(string arg)
+        static int RunCli(string[] args)
         {
             AttachConsoleOut();
+            string arg = args.Length > 0 ? args[0].TrimStart('-', '/').ToLowerInvariant() : "";
+
+            // 通知：agent-hud.exe -notify "标题" "正文" [zcode|dsh]
+            if (arg == "notify")
+            {
+                string title = args.Length > 1 ? args[1] : "通知";
+                string body = args.Length > 2 ? args[2] : "";
+                string app = args.Length > 3 ? args[3].ToLowerInvariant() : "zcode";
+                string id = Guid.NewGuid().ToString("N");
+                EventChannel.WriteRequest(id, app, "notify", title, body, null, 8);
+                Out("NOTIFY_QUEUED " + id);
+                return 0;
+            }
+            // 确认：agent-hud.exe -confirm --title T --body B [--app zcode] [--buttons 允许,拒绝] [--timeout 120] --wait
+            // 阻塞等待 HUD 按钮结果；退出码：0=第一个按钮(允许) 1=第二个按钮(拒绝) 3=超时
+            if (arg == "confirm")
+            {
+                string title = "权限请求", body = "", appId = "zcode", buttons = "允许,拒绝", id = Guid.NewGuid().ToString("N");
+                int timeoutSec = 120; bool wait = false;
+                for (int i = 2; i < args.Length; i++)
+                {
+                    string a = args[i].ToLowerInvariant();
+                    string val = i + 1 < args.Length ? args[i + 1] : null;
+                    if (a == "--title" && val != null) { title = args[i + 1]; i++; }
+                    else if (a == "--body" && val != null) { body = args[i + 1]; i++; }
+                    else if (a == "--app" && val != null) { appId = args[i + 1].ToLowerInvariant(); i++; }
+                    else if (a == "--buttons" && val != null) { buttons = args[i + 1]; i++; }
+                    else if (a == "--timeout" && val != null) { int.TryParse(args[i + 1], out timeoutSec); i++; }
+                    else if (a == "--wait") { wait = true; }
+                }
+                string[] bl = buttons.Split(',');
+                if (bl.Length < 2) bl = new string[] { "允许", "拒绝" };
+                EventChannel.WriteRequest(id, appId, "confirm", title, body, bl, timeoutSec);
+                Out("CONFIRM_QUEUED " + id);
+                if (!wait) return 0;
+                DateTime deadline = DateTime.Now.AddSeconds(Math.Max(5, timeoutSec) + 5);
+                while (DateTime.Now < deadline)
+                {
+                    bool timeout;
+                    string btn = EventChannel.ReadResponse(id, out timeout);
+                    if (timeout) { Out("DECISION: timeout"); return 3; }
+                    if (btn != null)
+                    {
+                        Out("DECISION: " + (btn == bl[0] ? "allow" : (btn == bl[1] ? "deny" : btn)));
+                        return btn == bl[1] ? 2 : 0;
+                    }
+                    Thread.Sleep(150);
+                }
+                EventChannel.WriteResponse(id, null, true);
+                Out("DECISION: timeout");
+                return 3;
+            }
             switch (arg)
             {
                 case "state":
@@ -1181,6 +1237,8 @@ namespace AgentHud
                     }
                 default:
                     Out("usage: agent-hud.exe [-state|-toggle|-on|-off|-quit|-debugdata|-settings|-popup:ds|-popup:zc|-mockcycle]");
+            Out("       agent-hud.exe -notify \"title\" \"body\" [zcode|dsh]");
+            Out("       agent-hud.exe -confirm --title T --body B [--app zcode] [--buttons A,B] [--timeout 120] [--wait]");
                     return 9;
             }
         }
@@ -1262,7 +1320,7 @@ namespace AgentHud
         private readonly Dictionary<string, string> _cfg;
         private readonly Dictionary<string, string> _initialCfg;
         private CheckBox _chkAutostart, _chkTray, _chkHover, _chkShowKey, _chkShowDs, _chkShowZc;
-        private ComboBox _cmbRefresh, _cmbLow, _cmbMid, _cmbMoodSrc, _cmbFs, _cmbSkin, _cmbDsWarn, _cmbDsDaze, _cmbBlurTint;
+        private ComboBox _cmbRefresh, _cmbLow, _cmbMid, _cmbMoodSrc, _cmbFs, _cmbSkin, _cmbBlurTint, _cmbBubbleDir, _cmbDsWarn, _cmbDsDaze;
         private PasswordBox _pwdKey;
         private TextBox _txtKey, _txtDsBase, _txtZcBase, _txtLaunchZc, _txtLaunchDs;
         private TextBlock _testResult;
@@ -1332,6 +1390,7 @@ namespace AgentHud
             AddTitle(p0, "面板材质");
             _cmbSkin = AddCombo(p0, "皮肤", new string[] { "黑色毛玻璃", "白色毛玻璃", "macOS Dock" }, SkinLabel(_cfg["skin"]));
             _cmbBlurTint = AddCombo(p0, "毛玻璃蒙版浓度", new string[] { "清透", "标准", "深邃" }, VeilLabel(_cfg["blur_veil"]));
+            _cmbBubbleDir = AddCombo(p0, "气泡弹出方向", new string[] { "自动", "永远向右", "永远向左" }, DirLabel(_cfg["bubble_dir"]));
             AddTitle(p0, "前台全屏程序（游戏/全屏视频）运行时");
             _cmbFs = AddCombo(p0, "侧边栏行为", new string[] { "自动隐藏", "缩边显示", "保持显示" }, FsLabel(_cfg["fullscreen_action"]));
             AddHint(p0, "five=5小时额度（推荐） / week=本周 / worst=两者取更差");
@@ -1463,7 +1522,7 @@ namespace AgentHud
             SwitchTab(0);
 
             // 实时预览挂接：选择类控件一变就套用
-            foreach (ComboBox cb in new ComboBox[] { _cmbRefresh, _cmbLow, _cmbMid, _cmbMoodSrc, _cmbFs, _cmbSkin, _cmbBlurTint, _cmbDsWarn, _cmbDsDaze })
+            foreach (ComboBox cb in new ComboBox[] { _cmbRefresh, _cmbLow, _cmbMid, _cmbMoodSrc, _cmbFs, _cmbSkin, _cmbBlurTint, _cmbBubbleDir, _cmbDsWarn, _cmbDsDaze })
                 cb.SelectionChanged += delegate { LivePreview(); };
             foreach (CheckBox ck in new CheckBox[] { _chkTray, _chkHover, _chkShowDs, _chkShowZc })
                 ck.Click += delegate { LivePreview(); };
@@ -1655,6 +1714,13 @@ namespace AgentHud
             sp.Children.Add(row);
         }
 
+        private string DirLabel(string v)
+        {
+            if (v == "right") return "永远向右";
+            if (v == "left") return "永远向左";
+            return "自动";
+        }
+
         private string VeilLabel(string v)
         {
             if (v == "18") return "清透";
@@ -1690,6 +1756,7 @@ namespace AgentHud
             d["fullscreen_action"] = new string[] { "hide", "tuck", "none" }[Math.Max(0, _cmbFs.SelectedIndex)];
             d["skin"] = new string[] { "blur-dark", "blur-light", "dock" }[Math.Max(0, _cmbSkin.SelectedIndex)];
             d["blur_veil"] = new string[] { "18", "30", "55" }[Math.Max(0, _cmbBlurTint.SelectedIndex)];
+            d["bubble_dir"] = new string[] { "auto", "right", "left" }[Math.Max(0, _cmbBubbleDir.SelectedIndex)];
             return d;
         }
 
@@ -1844,6 +1911,195 @@ namespace AgentHud
         }
     }
 
+    // ---------- 事件通道：drop 目录 + 响应目录（hooks/第三方写入，HUD 监听弹出） ----------
+    internal static class EventChannel
+    {
+        public static string BaseDir()
+        {
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AgentHUD", "events");
+        }
+        public static string DropDir() { return Path.Combine(BaseDir(), "drop"); }
+        public static string RespDir() { return Path.Combine(BaseDir(), "resp"); }
+        public static void EnsureDirs()
+        {
+            try { Directory.CreateDirectory(DropDir()); Directory.CreateDirectory(RespDir()); } catch { }
+        }
+        public static void CleanupOld()
+        {
+            try
+            {
+                DateTime cut = DateTime.Now.AddDays(-1);
+                foreach (string dir in new string[] { DropDir(), RespDir() })
+                    foreach (string f in Directory.GetFiles(dir, "*.json"))
+                        if (File.GetLastWriteTime(f) < cut) File.Delete(f);
+            }
+            catch { }
+        }
+        public static string WriteRequest(string id, string app, string kind, string title, string body, string[] buttons, int timeoutSec)
+        {
+            JavaScriptSerializer js = new JavaScriptSerializer();
+            var d = new Dictionary<string, object>();
+            d["id"] = id; d["app"] = app; d["kind"] = kind;
+            d["title"] = title; d["body"] = body;
+            d["buttons"] = buttons;
+            d["timeout"] = timeoutSec;
+            d["created"] = (long)(DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalSeconds;
+            string json = js.Serialize(d);
+            EnsureDirs();
+            File.WriteAllText(Path.Combine(DropDir(), id + ".json"), json, Encoding.UTF8);
+            return Path.Combine(DropDir(), id + ".json");
+        }
+        public static void WriteResponse(string id, string button, bool timeout)
+        {
+            try
+            {
+                JavaScriptSerializer js = new JavaScriptSerializer();
+                var d = new Dictionary<string, object>();
+                d["id"] = id; d["button"] = button; d["timeout"] = timeout;
+                string json = js.Serialize(d);
+                Directory.CreateDirectory(RespDir());
+                File.WriteAllText(Path.Combine(RespDir(), id + ".json"), json, Encoding.UTF8);
+            }
+            catch { }
+        }
+        public static string ReadResponse(string id, out bool timeout)
+        {
+            timeout = false;
+            try
+            {
+                string p = Path.Combine(RespDir(), id + ".json");
+                if (!File.Exists(p)) return null;
+                JavaScriptSerializer js = new JavaScriptSerializer();
+                IDictionary<string, object> d = js.DeserializeObject(File.ReadAllText(p, Encoding.UTF8)) as IDictionary<string, object>;
+                object b; d.TryGetValue("button", out b);
+                object t; d.TryGetValue("timeout", out t);
+                timeout = t is bool && (bool)t;
+                return b == null ? null : b.ToString();
+            }
+            catch { return null; }
+        }
+    }
+
+    // ---------- 通知/确认气泡（角色头顶弹出，皮肤材质联动） ----------
+    internal class NotifyBubble
+    {
+        public readonly string Id, App, Kind;
+        public readonly Popup Popup;
+        private readonly Border _frame;
+        private readonly TextBlock _title, _body;
+        private readonly StackPanel _btnRow;
+        private readonly DispatcherTimer _life;
+        public event Action<NotifyBubble, string> ButtonClick;   // 确认按钮（label）
+        public event Action<NotifyBubble> Closed;
+
+        public NotifyBubble(string id, string app, string kind, string title, string body, string[] buttons, int timeoutSec)
+        {
+            Id = id; App = app; Kind = kind;
+            Popup = new Popup();
+            Popup.AllowsTransparency = true;
+            Popup.StaysOpen = true;
+            Popup.Placement = PlacementMode.Absolute;
+            // 漫画气泡：白底 + 深色细描边 + 深色文字（任何皮肤下都可读）
+            _frame = new Border();
+            _frame.CornerRadius = new CornerRadius(12);
+            _frame.Background = Ui.Brush(0xF5, 0xFF, 0xFF, 0xFF);
+            _frame.BorderBrush = Ui.Brush(0xE0, 0x1A, 0x1A, 0x1A);
+            _frame.BorderThickness = new Thickness(1.2);
+            _frame.Width = 264;
+            _frame.Padding = new Thickness(12);
+            _frame.Effect = new DropShadowEffect { BlurRadius = 10, ShadowDepth = 2, Opacity = 0.22 };
+            StackPanel sp = new StackPanel();
+            _title = new TextBlock { Text = title, FontSize = 13, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap, Foreground = Ui.Brush(0xFF, 0x14, 0x14, 0x14) };
+            sp.Children.Add(_title);
+            _body = new TextBlock { Text = body, FontSize = 12, Foreground = Ui.Brush(0xE6, 0x28, 0x28, 0x28), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 5, 0, 0) };
+            sp.Children.Add(_body);
+            if (buttons != null && buttons.Length > 0)
+            {
+                _btnRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 10, 0, 0) };
+                foreach (string label in buttons)
+                {
+                    Button b = new Button
+                    {
+                        Content = label,
+                        Tag = label,
+                        FontSize = 12.5,
+                        Cursor = Cursors.Hand,
+                        Padding = new Thickness(12, 3, 12, 4),
+                        Margin = new Thickness(6, 0, 0, 0),
+                    };
+                    b.Click += delegate { if (ButtonClick != null) ButtonClick(this, label); };
+                    _btnRow.Children.Add(b);
+                }
+                sp.Children.Add(_btnRow);
+            }
+            _frame.Child = sp;
+            // 外框：留出阴影与尾巴的外溢空间；尾巴 = 旋转 45° 的菱形，指向角色头顶
+            Grid outer = new Grid { Margin = new Thickness(14, 14, 14, 24) };
+            outer.Children.Add(_frame);
+            _tail = new Border
+            {
+                Width = 12, Height = 12,
+                CornerRadius = new CornerRadius(2),
+                Background = Ui.Brush(0xF5, 0xFF, 0xFF, 0xFF),
+                BorderBrush = Ui.Brush(0xE0, 0x1A, 0x1A, 0x1A),
+                BorderThickness = new Thickness(1.2),
+                RenderTransformOrigin = new Point(0.5, 0.5),
+                RenderTransform = new RotateTransform(45),
+                IsHitTestVisible = false,
+            };
+            outer.Children.Add(_tail);
+            Popup.Child = outer;
+            if (kind != "confirm")
+                _life = new DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
+            else
+                _life = new DispatcherTimer { Interval = TimeSpan.FromSeconds(Math.Max(5, timeoutSec)) };
+            _life.Tick += delegate { if (ButtonClick != null && Kind == "confirm") ButtonClick(this, null); Close(); };
+            _life.Start();
+        }
+
+        public bool Visible { get { return Popup.IsOpen; } }
+
+        public double Width { get { return 264; } }
+
+        // 漫画式展开：headX/headY = 角色头顶屏幕坐标(DIP)；above=气泡在头上方
+        // left/top 由调用方按方向偏好+屏幕钳位算好；尾巴自动对准头部 X
+        public void OpenAt(double left, double top, double headX, bool above)
+        {
+            Popup.HorizontalOffset = left - 14;   // 外框留边(阴影/尾巴空间)
+            Popup.VerticalOffset = top - 14;
+            Popup.IsOpen = true;
+            Dispatcher.CurrentDispatcher.BeginInvoke((Action)delegate
+            {
+                try
+                {
+                    // 尾巴 X = 头部 X 相对气泡左缘，夹在气泡范围内
+                    double tx = headX - left - 14;
+                    if (tx < 16) tx = 16;
+                    if (tx > 264 - 30) tx = 264 - 30;
+                    if (_tail != null)
+                    {
+                        if (above) { _tail.VerticalAlignment = VerticalAlignment.Bottom; _tail.Margin = new Thickness(tx, 0, 0, 14); }
+                        else { _tail.VerticalAlignment = VerticalAlignment.Top; _tail.Margin = new Thickness(tx, 14, 0, 0); }
+                    }
+                }
+                catch { }
+            }, System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
+        private Border _tail;
+
+        public void Close()
+        {
+            _life.Stop();
+            if (Popup.IsOpen) { Popup.IsOpen = false; if (Closed != null) Closed(this); }
+        }
+
+        public void Restyle(bool light, bool isDock)
+        {
+            // 漫画气泡配色固定（白底深字），皮肤变化不改变气泡本身
+        }
+    }
+
     // ---------- 侧边栏（v1.4：原位抽屉展开 + HDR 双击确认） ----------
 
     public class Widget : Window
@@ -1899,6 +2155,9 @@ namespace AgentHud
         private Border _sepTop, _sepMid;
         private FramePlayer _dfPlayer, _zcPlayer;
         private System.Diagnostics.Stopwatch _animClock;
+        private FileSystemWatcher _eventWatcher;
+        private readonly List<NotifyBubble> _bubbles = new List<NotifyBubble>();
+        private readonly HashSet<string> _seenEventIds = new HashSet<string>();
         private Border _panel;
         private Grid _panelGrid;
         private string _currentSkin = "blur-dark";
@@ -2265,6 +2524,7 @@ namespace AgentHud
         {
             UpdateHeightNow();
             UpdateVisual(false);
+            StartEventChannel();
             if (MockCycle)
             {
                 _mockMood = 0;
@@ -2312,6 +2572,165 @@ namespace AgentHud
             _dataTimer.Start();
         }
 
+        // ---------- 事件通道：drop 目录监听 → 角色气泡 ----------
+        private void StartEventChannel()
+        {
+            try
+            {
+                EventChannel.EnsureDirs();
+                EventChannel.CleanupOld();
+                _eventWatcher = new FileSystemWatcher(EventChannel.DropDir(), "*.json")
+                {
+                    EnableRaisingEvents = true,
+                    NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.FileName,
+                };
+                _eventWatcher.Created += delegate(object s, FileSystemEventArgs e)
+                {
+                    Dispatcher.BeginInvoke((Action)delegate { HandleEventFile(e.FullPath); }, DispatcherPriority.Background);
+                };
+            }
+            catch { }
+        }
+
+        private void HandleEventFile(string path)
+        {
+            try
+            {
+                string text = null;
+                for (int i = 0; i < 4; i++)
+                {
+                    try { text = File.ReadAllText(path, Encoding.UTF8); break; } catch { Thread.Sleep(120); }
+                }
+                try { File.Delete(path); } catch { }
+                if (text == null) return;
+                JavaScriptSerializer js = new JavaScriptSerializer();
+                var d = js.DeserializeObject(text) as IDictionary<string, object>;
+                if (d == null) return;
+                string id = d.ContainsKey("id") ? (d["id"] + "") : Guid.NewGuid().ToString("N");
+                if (_seenEventIds.Contains(id)) return;
+                _seenEventIds.Add(id);
+                string app = d.ContainsKey("app") ? (d["app"] + "") : "zcode";
+                string kind = d.ContainsKey("kind") ? (d["kind"] + "") : "notify";
+                string title = d.ContainsKey("title") ? (d["title"] + "") : "通知";
+                string body = d.ContainsKey("body") ? (d["body"] + "") : "";
+                string[] buttons = null;
+                if (kind == "confirm" && d.ContainsKey("buttons"))
+                {
+                    var arr = d["buttons"] as IEnumerable<object>;
+                    if (arr != null)
+                    {
+                        List<string> bl = new List<string>();
+                        foreach (object o in arr) bl.Add(o + "");
+                        buttons = bl.ToArray();
+                    }
+                    if (buttons == null || buttons.Length == 0) buttons = new string[] { "允许", "拒绝" };
+                }
+                int timeoutSec = 120;
+                if (d.ContainsKey("timeout"))
+                {
+                    double t;
+                    if (double.TryParse(d["timeout"] + "", out t) && t > 0) timeoutSec = (int)t;
+                }
+                Dbg("HandleEventFile parsed id=" + id + " app=" + app + " kind=" + kind);
+                ShowEventBubble(id, app, kind, title, body, buttons, timeoutSec);
+                Dbg("HandleEventFile shown ok");
+            }
+            catch (Exception ex) { Dbg("HandleEventFile ERR: " + ex); }
+        }
+
+        private void ShowEventBubble(string id, string app, string kind, string title, string body, string[] buttons, int timeoutSec)
+        {
+            // 清理已关闭的气泡
+            for (int i = _bubbles.Count - 1; i >= 0; i--) if (!_bubbles[i].Visible) _bubbles.RemoveAt(i);
+            // 上限 3 个：多余的先关最老的
+            while (_bubbles.Count(b => b.Visible) >= 3)
+            {
+                NotifyBubble oldest = _bubbles.FirstOrDefault(b => b.Visible);
+                if (oldest == null) break;
+                oldest.Close();
+            }
+            NotifyBubble nb = new NotifyBubble(id, app, kind, title, body, buttons, timeoutSec);
+            nb.Restyle(Skins.IsLight(_currentSkin), _currentSkin == "dock");
+            nb.Closed += delegate { _bubbles.Remove(nb); };
+            nb.ButtonClick += delegate(NotifyBubble b, string label)
+            {
+                EventChannel.WriteResponse(b.Id, label, false);
+                b.Close();
+            };
+            _bubbles.Add(nb);
+            // 确认超时：写超时响应并关闭
+            if (kind == "confirm")
+            {
+                var nbRef = nb;
+                var toTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(Math.Max(5, timeoutSec)) };
+                toTimer.Tick += delegate
+                {
+                    toTimer.Stop();
+                    if (nbRef.Visible && _bubbles.Contains(nbRef))
+                    {
+                        EventChannel.WriteResponse(nbRef.Id, null, true);
+                        nbRef.Close();
+                    }
+                };
+                toTimer.Start();
+            }
+            // 定位：方向自适应（贴左→右弹，贴右→左弹，悬浮→空间大的一侧）+ 手动设置兜底
+            string dirSetting;
+            try { dirSetting = _cfg["bubble_dir"]; } catch { dirSetting = "auto"; }
+            // 多显示器：以 HUD 所在屏幕的虚拟桌面为钳位范围（物理像素按窗口 DPI 折算 DIP）
+            double dpix = 1.0;
+            try { dpix = System.Windows.Media.VisualTreeHelper.GetDpi(this).PixelsPerDip; } catch { }
+            Rect wa;
+            try
+            {
+                var vs = WF.SystemInformation.VirtualScreen;
+                wa = new Rect(vs.Left / dpix, vs.Top / dpix, vs.Width / dpix, vs.Height / dpix);
+            }
+            catch { wa = SystemParameters.WorkArea; }
+            double wx = Left + Width / 2;
+            bool toRight;
+            if (dirSetting == "right") toRight = true;
+            else if (dirSetting == "left") toRight = false;
+            else if (_dock == "left") toRight = true;
+            else if (_dock == "right") toRight = false;
+            else if (_dock == "top" || _dock == "bottom") toRight = wx < wa.Left + wa.Width / 2;
+            else toRight = wx < wa.Left + wa.Width / 2;
+            double bubbleW = 288;
+            double px = toRight ? Left + Width + 10 : Left - bubbleW - 10;
+            if (px < wa.Left + 4) px = wa.Left + 4;
+            if (px + bubbleW > wa.Right - 4) px = wa.Right - 4 - bubbleW;
+            // 锚定角色头顶（漫画式：气泡从头顶冒出，尾巴指向头部）
+            double headX = Left + Width / 2, headY = Top + 30;
+            try
+            {
+                var row = app == "dsh" ? _dsRow : _zcRow;
+                double dpix2 = 1.0;
+                try { dpix2 = System.Windows.Media.VisualTreeHelper.GetDpi(this).PixelsPerDip; } catch { }
+                var pt = row.PointToScreen(new Point(row.ActualWidth / 2, 6));
+                headX = pt.X / dpix2; headY = pt.Y / dpix2;
+            }
+            catch { }
+            // 气泡在头顶上方；顶部没空间则在头顶下方（尾巴朝上）
+            bool above = headY - 130 > wa.Top + 4;
+            // 水平：优先头顶正上方，按方向偏好偏移，再钳进屏幕
+            double left = headX - 50;
+            if (dirSetting == "right" || (!toRight && dirSetting != "left")) { }
+            if (toRight) left = headX - 40;
+            else left = headX - (288 - 40);
+            if (left < wa.Left + 4) left = wa.Left + 4;
+            if (left + 288 > wa.Right - 4) left = wa.Right - 4 - 288;
+            double top;
+            if (above) top = Math.Max(wa.Top + 4, headY - 124);
+            else top = headY + 10;
+            Dbg("bubble: id=" + id + " head=(" + (int)headX + "," + (int)headY + ") above=" + above + " left=" + (int)left + " top=" + (int)top);
+            nb.OpenAt(left, top, headX, above);
+        }
+
+        private void DismissAllBubbles()
+        {
+            foreach (NotifyBubble b in _bubbles.ToList()) if (b.Kind != "confirm") b.Close();
+        }
+
         // ---------- 托盘 ----------
         private void SetupTray()
         {
@@ -2342,7 +2761,7 @@ namespace AgentHud
 
         private void ToggleVisible()
         {
-            if (Visibility == Visibility.Visible) { CloseDrawersAndUnpin(); _userHidden = true; Visibility = Visibility.Hidden; }
+            if (Visibility == Visibility.Visible) { CloseDrawersAndUnpin(); DismissAllBubbles(); _userHidden = true; Visibility = Visibility.Hidden; }
             else { _userHidden = false; Visibility = Visibility.Visible; UpdateDock(false); }
         }
 
@@ -2391,6 +2810,8 @@ namespace AgentHud
             if (_sepTop != null) _sepTop.Background = _sepBrush;
             if (_sepMid != null) _sepMid.Background = _sepBrush;
             ApplySkinColors(light);
+            bool isDockSkin = skin == "dock";
+            foreach (NotifyBubble b in _bubbles.ToList()) b.Restyle(light, isDockSkin);
         }
 
         // 把手/文本反色：皮肤应用与启动时都要调（启动时 ApplySkin 先于文本创建，需补调）
@@ -2564,6 +2985,7 @@ namespace AgentHud
                 _fsHidden = true;
                 _fsUsedHide = action != "tuck";
                 CloseDrawersAndUnpin();
+                DismissAllBubbles();
                 if (_fsUsedHide) Visibility = Visibility.Hidden;
                 else SetDockState(_dock.Length > 0 ? _dock : "right", true, true);
             }
