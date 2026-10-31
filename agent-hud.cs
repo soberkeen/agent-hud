@@ -2317,12 +2317,12 @@ namespace AgentHud
             if (skin != "blur-dark" && skin != "blur-light") skin = "blur-dark";
             _currentSkin = skin;
             bool light = Skins.IsLight(skin);
-            // 纯透明蒙版（DeskGo 同款）：壁纸清晰直透，只有一层色纱
-            // 清透/标准/深邃 → 白毛 0x20/0x38/0x55，黑毛 0x70/0x8C/0xA8
+            // 纯透明蒙版（DeskGo 同款）：壁纸清晰直透，只轻微压暗不发白
+            // 清透/标准/深邃 → 白毛 0x18/0x28/0x3C 暗纱（ DeskGo 式轻微压暗），黑毛 0x70/0x8C/0xA8
             byte va;
             try { va = Convert.ToByte(cfg["blur_veil"], 16); }
             catch { va = 0x30; }
-            if (light) _panel.Background = Ui.Brush(va, 0xFF, 0xFF, 0xFF);
+            if (light) _panel.Background = Ui.Brush(va, 0x0E, 0x10, 0x14);
             else _panel.Background = Ui.Brush((byte)Math.Min(255, va + 0x50), 0x10, 0x12, 0x16);
             _panel.BorderBrush = light ? Ui.Brush(0x4D, 0x00, 0x00, 0x00) : Ui.Brush(0x44, 0xFF, 0xFF, 0xFF);
             _panel.CornerRadius = new CornerRadius(16);
