@@ -440,6 +440,17 @@ public class WizardForm : Form
             Step("释放程序文件…", 30);
             Directory.CreateDirectory(dir);
             Setup.ExtractApp(dir);
+            try
+            {
+                // 自动配置：合并 ZCode hooks（通知/权限气泡）+ 探测双击启动路径
+                var psi = new ProcessStartInfo(Path.Combine(dir, "agent-hud.exe"), "-install-hooks")
+                {
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                };
+                Process.Start(psi).WaitForExit(15000);
+            }
+            catch { }
             string self = Process.GetCurrentProcess().MainModule.FileName;
             File.Copy(self, Path.Combine(dir, "uninstall.exe"), true);
 

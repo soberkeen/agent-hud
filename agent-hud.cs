@@ -48,8 +48,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Agent HUD：HDR 开关 + DeepSeek 余额 + GLM 订阅用量悬浮侧边栏")]
 [assembly: AssemblyCompany("Agent HUD Project")]
 [assembly: AssemblyCopyright("Copyright (C) 2026 Agent HUD Project")]
-[assembly: AssemblyVersion("2.8.0.0")]
-[assembly: AssemblyFileVersion("2.8.0.0")]
+[assembly: AssemblyVersion("2.9.0.0")]
+[assembly: AssemblyFileVersion("2.9.0.0")]
 
 namespace AgentHud
 {
@@ -1142,6 +1142,91 @@ namespace AgentHud
             }
         }
 
+        // 安装期自动配置：ZCode hooks 合并 + 双击启动路径探测（幂等，可重复调用）
+        static string ProbeInstallLocation(string keyword, string exeName)
+        {
+            string[] hives = { @"Software\Microsoft\Windows\CurrentVersion\Uninstall", @"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall" };
+            foreach (string hive in hives)
+                foreach (Microsoft.Win32.RegistryKey root in new Microsoft.Win32.RegistryKey[] { Microsoft.Win32.Registry.CurrentUser, Microsoft.Win32.Registry.LocalMachine })
+                {
+                    try
+                    {
+                        using (Microsoft.Win32.RegistryKey k = root.OpenSubKey(hive))
+                        {
+                            if (k == null) continue;
+                            foreach (string sk in k.GetSubKeyNames())
+                            {
+                                using (Microsoft.Win32.RegistryKey sub = k.OpenSubKey(sk))
+                                {
+                                    if (sub == null) continue;
+                                    string name = sub.GetValue("DisplayName") as string;
+                                    if (name == null || name.IndexOf(keyword, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                                    string loc = sub.GetValue("InstallLocation") as string;
+                                    if (string.IsNullOrEmpty(loc)) continue;
+                                    string exe = Path.Combine(loc, exeName);
+                                    if (File.Exists(exe)) return exe;
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                }
+            return null;
+        }
+
+        static int InstallHooks()
+        {
+            int rc = 0;
+            // 1) ZCode hooks 合并（config.json 存在才做；没有 ZCode CLI 的用户跳过）
+            try
+            {
+                string cfgPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".zcode", "cli", "config.json");
+                if (File.Exists(cfgPath))
+                {
+                    JavaScriptSerializer js = new JavaScriptSerializer();
+                    var root = js.DeserializeObject(File.ReadAllText(cfgPath, Encoding.UTF8)) as IDictionary<string, object>;
+                    if (root != null)
+                    {
+                        var hooks = root.ContainsKey("hooks") && root["hooks"] is IDictionary<string, object>
+                            ? (IDictionary<string, object>)root["hooks"] : new Dictionary<string, object>();
+                        hooks["enabled"] = true;
+                        var events = hooks.ContainsKey("events") && hooks["events"] is IDictionary<string, object>
+                            ? (IDictionary<string, object>)hooks["events"] : new Dictionary<string, object>();
+                        string exe = Assembly.GetExecutingAssembly().Location;
+                        var stopHook = new Dictionary<string, object> { { "type", "process" }, { "command", exe },
+                            { "args", new object[] { "-notify", "任务完成", "ZCode 会话已结束", "zcode" } }, { "timeoutMs", 15000 } };
+                        var permHook = new Dictionary<string, object> { { "type", "process" }, { "command", exe },
+                            { "args", new object[] { "-confirm", "--title", "权限请求", "--body", "ZCode 请求执行操作，请在 HUD 上选择", "--app", "zcode", "--timeout", "110", "--wait" } }, { "timeoutMs", 120000 } };
+                        events["Stop"] = new object[] { new Dictionary<string, object> { { "hooks", new object[] { stopHook } } } };
+                        events["PermissionRequest"] = new object[] { new Dictionary<string, object> { { "hooks", new object[] { permHook } } } };
+                        hooks["events"] = events;
+                        root["hooks"] = hooks;
+                        File.WriteAllText(cfgPath, js.Serialize(root), new UTF8Encoding(false));   // 无 BOM：Node JSON.parse 不接受 BOM
+                    }
+                }
+                else rc |= 1;
+            }
+            catch { rc |= 1; }
+            // 2) 双击启动路径：ini 未填时按注册表探测（ZCode / DSH NEXT）
+            try
+            {
+                var ini = SettingsData.Load();
+                if (ini["launch_zcode"].Length == 0)
+                {
+                    string zc = ProbeInstallLocation("ZCode", "ZCode.exe");
+                    if (zc != null) ini["launch_zcode"] = zc;
+                }
+                if (ini["launch_dsh"].Length == 0)
+                {
+                    string dsh = ProbeInstallLocation("DSH", "DSH NEXT.exe");
+                    if (dsh != null) ini["launch_dsh"] = dsh;
+                }
+                SettingsData.Save(ini);
+            }
+            catch { rc |= 2; }
+            return rc;
+        }
+
         static int RunCli(string[] args)
         {
             AttachConsoleOut();
@@ -1224,6 +1309,12 @@ namespace AgentHud
                         Out(ok ? "QUIT_OK" : "QUIT_NONE");
                         return ok ? 0 : 1;
                     }
+                case "install-hooks":
+                    {
+                        int rc = InstallHooks();
+                        Out(rc == 0 ? "HOOKS_INSTALLED" : "HOOKS_PARTIAL(" + rc + ")");
+                        return rc;
+                    }
                 case "debugdata":
                     {
                         Dictionary<string, string> cfg = SettingsData.Load();
@@ -1239,6 +1330,7 @@ namespace AgentHud
                     Out("usage: agent-hud.exe [-state|-toggle|-on|-off|-quit|-debugdata|-settings|-popup:ds|-popup:zc|-mockcycle]");
             Out("       agent-hud.exe -notify \"title\" \"body\" [zcode|dsh]");
             Out("       agent-hud.exe -confirm --title T --body B [--app zcode] [--buttons A,B] [--timeout 120] [--wait]");
+            Out("       agent-hud.exe -install-hooks  （安装器自动调用；合并 ZCode hooks + 探测启动路径）");
                     return 9;
             }
         }
