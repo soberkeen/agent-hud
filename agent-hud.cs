@@ -1697,7 +1697,7 @@ namespace AgentHud
             string newSkin = d["skin"];
             if (newSkin != _cfg["skin"] &&
                 (Skins.IsAcrylic(newSkin) != Skins.IsAcrylic(_cfg["skin"])))
-                System.Windows.MessageBox.Show("面板材质已保存。黑 ⇄ 玻璃/毛玻璃 切换需重启侧边栏后生效。",
+                System.Windows.MessageBox.Show("面板材质已保存。毛玻璃 ⇄ 黑色/玻璃 切换需重启侧边栏后生效。",
                     "Agent HUD", MessageBoxButton.OK, MessageBoxImage.Information);
             SettingsData.Save(d);
             SettingsData.SetAutostart(_chkAutostart.IsChecked == true);
@@ -1805,19 +1805,19 @@ namespace AgentHud
         // dark=分层窗口实心；glass/blur=DWM Acrylic 上的浅色调板
         public static Brush PanelBackground(string skin)
         {
-            if (skin == "glass") return Ui.Brush(0x28, 0xFF, 0xFF, 0xFF);          // acrylic 上的亮纱
+            if (skin == "glass") return Ui.Brush(0x38, 0xFF, 0xFF, 0xFF);          // 纯透明：低透明白纱，壁纸直透
             if (skin == "blur") return Ui.Brush(0x66, 0x14, 0x18, 0x20);           // acrylic 上的深纱
             return Ui.Brush(0xE6, 0x20, 0x20, 0x20);                               // dark
         }
 
         public static Brush PanelBorder(string skin)
         {
-            if (skin == "glass") return Ui.Brush(0x60, 0xFF, 0xFF, 0xFF);
+            if (skin == "glass") return Ui.Brush(0x55, 0xFF, 0xFF, 0xFF);
             if (skin == "blur") return Ui.Brush(0x66, 0xFF, 0xFF, 0xFF);
             return Ui.Brush(0x33, 0xFF, 0xFF, 0xFF);
         }
 
-        public static bool IsAcrylic(string skin) { return skin == "glass" || skin == "blur"; }
+        public static bool IsAcrylic(string skin) { return skin == "blur"; }   // 玻璃=纯透明（分层），毛玻璃=Acrylic 模糊
 
         // 玻璃高光斜纹（顶部一道渐变提亮，模拟玻璃反光）
         public static Border GlossOverlay(string skin)
