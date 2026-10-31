@@ -1085,6 +1085,11 @@ namespace AgentHud
         {
             try
             {
+                AppDomain.CurrentDomain.UnhandledException += delegate(object snd, UnhandledExceptionEventArgs ea)
+                {
+                    try { System.IO.File.WriteAllText(Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "crash.log"),
+                        DateTime.Now + " APPDOMAIN\r\n" + ea.ExceptionObject + "\r\n"); } catch { }
+                };
                 LegacyMigrator.Run();
                 // 只把 -/ 开头的参数当 CLI 命令；其余杂散参数（如快捷方式残留）忽略，直接进 GUI
                 string first = args.Length > 0 ? args[0] : "";
@@ -1204,6 +1209,12 @@ namespace AgentHud
             if (openSettings) w.OpenSettings();
             if (popupDebug != null) w.DebugPopup(popupDebug);
             w.Start();          // v1.3 起漏掉过这行：轮询/数据刷新定时器全靠它
+            Dispatcher.CurrentDispatcher.UnhandledException += delegate(object snd, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs ea)
+            {
+                try { System.IO.File.WriteAllText(Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "crash.log"),
+                    DateTime.Now + " DISPATCHER\r\n" + ea.Exception + "\r\n"); } catch { }
+                ea.Handled = false;
+            };
             Dispatcher.Run();   // 无 Application 对象，手动泵消息；Widget.Closed 里 BeginInvokeShutdown
             return 0;
         }
@@ -1777,9 +1788,9 @@ namespace AgentHud
             }
         }
 
-        public static void Apply(IntPtr hwnd, bool enable)
+        public static void Apply(IntPtr hwnd, bool enable, bool darkMode)
         {
-            int dark = 1, acrylic = enable ? 3 : 1, round = 2;
+            int dark = darkMode ? 1 : 0, acrylic = enable ? 3 : 1, round = 2;
             MARGINS m = new MARGINS(); m.L = -1; m.R = -1; m.T = -1; m.B = -1;
             DwmExtendFrameIntoClientArea(hwnd, ref m);
             DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, 4);
@@ -1802,7 +1813,7 @@ namespace AgentHud
         public static Brush PanelBorder(string skin)
         {
             if (skin == "glass") return Ui.Brush(0x60, 0xFF, 0xFF, 0xFF);
-            if (skin == "blur") return Ui.Brush(0x50, 0x7C, 0xFC, 0x9E);
+            if (skin == "blur") return Ui.Brush(0x66, 0xFF, 0xFF, 0xFF);
             return Ui.Brush(0x33, 0xFF, 0xFF, 0xFF);
         }
 
@@ -1962,12 +1973,12 @@ namespace AgentHud
                 BorderThickness = new Thickness(1),
                 VerticalAlignment = VerticalAlignment.Top,   // 抽屉收起时面板贴顶，底部保持透明
             };
-            ApplySkin(SettingsData.Load());
             StackPanel stack = new StackPanel();
             Grid panelGrid = new Grid();          // gloss 垫底，stack 在上
             _panel.Child = panelGrid;
             panelGrid.Children.Add(stack);
             _panelGrid = panelGrid;
+            ApplySkin(SettingsData.Load());       // 需在 _panelGrid 就绪后调用（会插高光层）
             _root = new Grid { Cursor = Cursors.Hand };
             _root.Children.Add(_panel);
             Content = _root;
@@ -2192,12 +2203,12 @@ namespace AgentHud
                         bool legacyAccent = Environment.OSVersion.Version.Build < 26100;
                         if (sk == "blur" && legacyAccent)
                         {
-                            DwmBackdrop.Apply(h, false);
+                            DwmBackdrop.Apply(h, false, true);
                             AccentGlass.Apply(h, _cfg.ContainsKey("blur_tint") ? _cfg["blur_tint"] : "C8141E26");
                         }
                         else
                         {
-                            DwmBackdrop.Apply(h, true);                     // 系统 Acrylic（真模糊）
+                            DwmBackdrop.Apply(h, true, sk == "blur" ? false : true);   // blur=亮色 Acrylic
                         }
                         _acrylicApplied = true;
                     }
@@ -2371,11 +2382,11 @@ namespace AgentHud
                 _panel.VerticalAlignment = VerticalAlignment.Stretch;
                 if (skin == "blur")
                 {
-                    // 毛玻璃：系统 Acrylic 之上只盖一层可调浓度的深色蒙版（清透=几乎全透）
+                    // 毛玻璃：亮色 Acrylic 之上盖一层可调浓度的白纱（清透=几乎全透）
                     byte va;
                     try { va = Convert.ToByte(cfg["blur_veil"], 16); }
                     catch { va = 0x30; }
-                    _panel.Background = Ui.Brush(va, 0x14, 0x18, 0x20);
+                    _panel.Background = Ui.Brush(va, 0xFA, 0xFB, 0xFE);
                 }
             }
             else
