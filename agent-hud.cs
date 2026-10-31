@@ -2715,7 +2715,7 @@ namespace AgentHud
             {
                 double bal; bool num = double.TryParse(_ds.Balance, System.Globalization.NumberStyles.Any,
                     System.Globalization.CultureInfo.InvariantCulture, out bal);
-                int mood = !num ? 0 : (bal <= 0 ? 2 : (bal < 20 ? 1 : 0));
+                int mood = !num ? 0 : (bal <= 1 ? 2 : (bal < 20 ? 1 : 0));
                 _dfPlayer.SetSheet(mood == 0 ? "normal" : (mood == 1 ? "worry" : "daze"));
                 _dfMoodNow = mood;
                 _dfFrozen = false;
