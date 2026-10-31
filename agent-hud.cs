@@ -2157,7 +2157,9 @@ namespace AgentHud
             _frame.Background = frameBrush;                  // 与 HUD 面板同源材质
             _frame.BorderBrush = Ui.Brush(0x4D, 0xFF, 0xFF, 0xFF);
             _frame.BorderThickness = new Thickness(1);
-            _frame.Width = 264;
+            _frame.HorizontalAlignment = HorizontalAlignment.Left;   // 防止 Stretch 撑满
+            _frame.VerticalAlignment = VerticalAlignment.Top;
+            _frame.MaxWidth = 320;   // 长文本换行上限
             _frame.Padding = new Thickness(12);
             StackPanel sp = new StackPanel();
             _title = new TextBlock { Text = title, FontSize = 13, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap, Foreground = darkText ? Ui.Brush(0xF0, 0x14, 0x16, 0x1C) : Ui.Brush(0xFF, 0xF4, 0xF6, 0xFA) };
@@ -2210,24 +2212,26 @@ namespace AgentHud
 
         public bool Visible { get { return Popup.IsOpen; } }
 
-        public double Width { get { return 264; } }
+        public double Width { get { return _frame.ActualWidth > 0 ? _frame.ActualWidth : 264; } }
 
-        // 展开定位：left/top = 气泡外框左上（DIP）；tailSide = 尾巴在气泡哪一侧；tailY = 尾巴中心 Y
-        public void OpenAt(double left, double top, string tailSide, double tailY)
+        // 展开定位：edgeX = 气泡尾侧的屏幕 X（紧贴 HUD 边缘）；tailSide = 尾巴在气泡左/右缘；anchorY = 角色 Y
+        // 气泡尺寸自适应文本（MinWidth/MaxWidth 由 WPF 自动计算），Loaded 后微调使尾侧紧贴 HUD 边缘
+        public void OpenAt(double edgeX, double anchorY, string tailSide, double top)
         {
-            _tailSide = tailSide; _tailY = tailY;
-            Popup.HorizontalOffset = left;
+            _tailSide = tailSide; _tailY = anchorY;
+            bool tailRight = tailSide == "right";
+            Popup.HorizontalOffset = tailRight ? edgeX : edgeX - 288;
             Popup.VerticalOffset = top;
-            Popup.IsOpen = true;
             Dispatcher.CurrentDispatcher.BeginInvoke((Action)delegate
             {
                 try
                 {
+                    double actualW = _frame.ActualWidth > 0 ? _frame.ActualWidth : 264;
+                    double offset = tailRight ? edgeX : edgeX - actualW;
+                    Popup.HorizontalOffset = offset;
+                    double tx = tailRight ? actualW - 3 : -3;
                     double fh = _frame.ActualHeight > 0 ? _frame.ActualHeight : 100;
-                    double tx = _tailSide == "right" ? _frame.Width - 3 : -3;
-                    double ty = tailY - top - 5;
-                    if (ty < 4) ty = 4;
-                    if (ty > fh - 16) ty = fh - 16;
+                    double ty = Math.Max(8, Math.Min(fh - 16, anchorY - Popup.VerticalOffset - 5));
                     _tail.HorizontalAlignment = HorizontalAlignment.Left;
                     _tail.VerticalAlignment = VerticalAlignment.Top;
                     _tail.Margin = new Thickness(tx, ty, 0, 0);
@@ -2763,6 +2767,7 @@ namespace AgentHud
         {
             try
             {
+                Dbg("PollToasts tick");
                 // Win11 的 toast 复用常驻 CoreWindow（不创建新窗口）——轮询其 UIA 文本变化
                 EnumWindows(delegate(IntPtr h, IntPtr lp)
                 {
@@ -2833,6 +2838,7 @@ namespace AgentHud
         // ---------- 事件通道：drop 目录监听 → 角色气泡 ----------
         private void StartEventChannel()
         {
+            Dbg("StartEventChannel: drop=" + EventChannel.DropDir());
             try
             {
                 EventChannel.EnsureDirs();
@@ -2845,11 +2851,10 @@ namespace AgentHud
                 };
                 _eventWatcher.Created += delegate(object s, FileSystemEventArgs e)
                 {
-                    // 读文件的重试放线程池，不冻结 UI
+                    Dbg("FSW Created: " + e.FullPath);
                     ThreadPool.QueueUserWorkItem(delegate
                     {
-                        var evt = new System.Collections.Generic.KeyValuePair<string, string>(e.FullPath, e.Name);
-                        Dispatcher.BeginInvoke((Action)delegate { HandleEventFile(evt.Key); }, DispatcherPriority.Background);
+                        Dispatcher.BeginInvoke((Action)delegate { HandleEventFile(e.FullPath); }, DispatcherPriority.Background);
                     });
                 };
                 _eventWatcher.Changed += delegate(object s, FileSystemEventArgs e)
@@ -2935,10 +2940,10 @@ namespace AgentHud
                 oldest.Close();
             }
             bool lightSkin = Skins.IsLight(_currentSkin);
-            Brush veil = _panel.Background;
-            var c = ((SolidColorBrush)veil).Color;
-            Brush bubbleBrush = new SolidColorBrush(Color.FromArgb(
-                (byte)Math.Min(255, c.A + 0x40), c.R, c.G, c.B));
+            // 气泡用皮肤色调但固定较高不透明度（可读性优先，不跟随面板的半透蒙版）
+            Brush bubbleBrush = lightSkin
+                ? Ui.Brush(0xE8, 0xFA, 0xFB, 0xFE)    // 白毛/Dock：亮雾面
+                : Ui.Brush(0xE8, 0x2A, 0x2A, 0x2E);   // 黑毛：暗雾面
             bubbleBrush.Freeze();
             bool darkText = lightSkin;
             NotifyBubble nb = new NotifyBubble(id, app, kind, title, body, buttons, timeoutSec, bubbleBrush, darkText);
@@ -3004,10 +3009,6 @@ namespace AgentHud
             catch { }
             // 气泡紧贴 HUD 侧边、垂直对齐角色头部，尾巴从角色头侧指向角色
             bool leftSide = !toRight;   // toRight=True → 气泡在 HUD 右侧；False → 左侧
-            double bubbleW2 = 264;
-            double left = leftSide ? Left - bubbleW2 - 2 : Left + Width + 2;
-            if (left < wa.Left + 4) left = wa.Left + 4;
-            if (left + bubbleW2 > wa.Right - 4) left = wa.Right - 4 - bubbleW2;
             // 气泡顶边 = 角色行上方的分割线；长度由文本自然决定
             double dpixB = 1.0;
             try { dpixB = System.Windows.Media.VisualTreeHelper.GetDpi(this).PixelsPerDip; } catch { }
@@ -3024,9 +3025,9 @@ namespace AgentHud
             catch { top = headY2 - 50; }
             if (top < wa.Top + 4) top = wa.Top + 4;
             string tailSide = leftSide ? "right" : "left";
-            double tailY2 = headY2;
-            Dbg("bubble: id=" + id + " leftSide=" + leftSide + " left=" + (int)left + " top=" + (int)top);
-            nb.OpenAt(left, top, tailSide, tailY2);
+            double edgeX = leftSide ? Left - 4 : Left + Width + 4;
+            Dbg("bubble: id=" + id + " leftSide=" + leftSide + " edgeX=" + (int)edgeX + " top=" + (int)top);
+            nb.OpenAt(edgeX, headY2, tailSide, top);
         }
 
         private void DismissAllBubbles()
