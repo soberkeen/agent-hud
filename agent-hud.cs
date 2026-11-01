@@ -49,8 +49,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Agent HUD：HDR 开关 + DeepSeek 余额 + GLM 订阅用量悬浮侧边栏")]
 [assembly: AssemblyCompany("Agent HUD Project")]
 [assembly: AssemblyCopyright("Copyright (C) 2026 Agent HUD Project")]
-[assembly: AssemblyVersion("2.9.1.0")]
-[assembly: AssemblyFileVersion("2.9.1.0")]
+[assembly: AssemblyVersion("2.9.3.0")]
+[assembly: AssemblyFileVersion("2.9.3.0")]
 
 namespace AgentHud
 {
@@ -1149,6 +1149,7 @@ namespace AgentHud
                     if (cmd == "settings") return RunGui(true, null);
                     if (cmd == "mockcycle") return RunGui(false, null, true);
                     if (cmd == "hover:ds" || cmd == "hover:zc") return RunGui(false, null, false, cmd.Substring(6));
+                    if (cmd == "dbg") { Ui.DebugLogEnabled = true; return RunGui(false, null); }   // 正常 GUI + 调试日志（联调事件通道用）
                     if (cmd == "pintest") { Ui.DebugLogEnabled = true; return RunGui(false, null, false, null, true); }
                     if (cmd == "hovertest") { Ui.DebugLogEnabled = true; return RunGui(false, null, false, null, false, true); }
                     return RunCli(args);
@@ -2094,7 +2095,7 @@ namespace AgentHud
             d["created"] = (long)(DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalSeconds;
             string json = js.Serialize(d);
             EnsureDirs();
-            File.WriteAllText(Path.Combine(DropDir(), id + ".json"), json, Encoding.UTF8);
+            File.WriteAllText(Path.Combine(DropDir(), id + ".json"), json, new UTF8Encoding(false));   // 无 BOM：Node JSON.parse 不接受 BOM
             return Path.Combine(DropDir(), id + ".json");
         }
         public static void WriteResponse(string id, string button, bool timeout)
@@ -2109,7 +2110,7 @@ namespace AgentHud
                 // 原子写：tmp + rename（DSH 侧 200ms 轮询可能读到半截文件）
                 string final = Path.Combine(RespDir(), id + ".json");
                 string tmp = final + "." + osPid + ".tmp";
-                File.WriteAllText(tmp, json, Encoding.UTF8);
+                File.WriteAllText(tmp, json, new UTF8Encoding(false));   // 无 BOM：DSH 侧 JSON.parse 拒收 BOM，会把 resp 永远当未就绪
                 if (File.Exists(final)) File.Delete(final);
                 File.Move(tmp, final);
             }
@@ -2237,6 +2238,7 @@ namespace AgentHud
             bool tailRight = tailSide == "right";
             Popup.HorizontalOffset = tailRight ? edgeX : edgeX - 288;
             Popup.VerticalOffset = top;
+            Popup.IsOpen = true;   // v2.9.3 修复：v2.9.2 气泡自适应重构时这行被吞，气泡从未真正弹出（"shown ok"只代表没抛异常）
             Dispatcher.CurrentDispatcher.BeginInvoke((Action)delegate
             {
                 try
@@ -2858,27 +2860,25 @@ namespace AgentHud
             {
                 EventChannel.EnsureDirs();
                 EventChannel.CleanupOld();
-                _eventWatcher = new FileSystemWatcher(EventChannel.DropDir(), "*.json")
+                // v2.9.3：不设 filter——DSH 原子写是同目录 rename（.tmp → .json），FSW 对 rename 触发
+                // 的是 Renamed 而非 Created；带 filter 时 .tmp 阶段无事件、落地事件可能被按名过滤。
+                // Created/Renamed/Changed 全收，QueueEventFile 内按扩展名分拣（.tmp 由 rename 落地接手）。
+                _eventWatcher = new FileSystemWatcher(EventChannel.DropDir())
                 {
                     EnableRaisingEvents = true,
                     NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.FileName,
                     InternalBufferSize = 64 * 1024,   // 默认 8KB 溢出会静默丢事件
                 };
-                _eventWatcher.Created += delegate(object s, FileSystemEventArgs e)
+                _eventWatcher.Created += delegate(object s, FileSystemEventArgs e) { QueueEventFile(e.FullPath); };
+                _eventWatcher.Renamed += delegate(object s, RenamedEventArgs e)
                 {
-                    Dbg("FSW Created: " + e.FullPath);
-                    ThreadPool.QueueUserWorkItem(delegate
-                    {
-                        Dispatcher.BeginInvoke((Action)delegate { HandleEventFile(e.FullPath); }, DispatcherPriority.Background);
-                    });
+                    Dbg("FSW Renamed: " + e.OldFullPath + " -> " + e.FullPath);
+                    QueueEventFile(e.FullPath);
                 };
                 _eventWatcher.Changed += delegate(object s, FileSystemEventArgs e)
                 {
                     // 写入方占用超过重试窗口时，Created 已被搁置——Changed 给它第二次机会（幂等去重）
-                    ThreadPool.QueueUserWorkItem(delegate
-                    {
-                        Dispatcher.BeginInvoke((Action)delegate { HandleEventFile(e.FullPath); }, DispatcherPriority.Background);
-                    });
+                    QueueEventFile(e.FullPath);
                 };
                 _eventWatcher.Error += delegate
                 {
@@ -2893,55 +2893,96 @@ namespace AgentHud
                 };
                 // 启动时扫描 drop 目录里已有的未消费请求（FSW 只检测启动后的新文件）
                 foreach (string f in Directory.GetFiles(EventChannel.DropDir(), "*.json"))
-                    HandleEventFile(f);
+                    QueueEventFile(f);
             }
             catch { }
         }
 
-        private void HandleEventFile(string path)
+        // 事件分拣：只处理落地为 .json 的文件；.tmp 是原子写中间态，rename 落地时由 Renamed 接手
+        private void QueueEventFile(string path)
         {
             try
             {
-                string text = null;
-                for (int i = 0; i < 4; i++)
+                if (string.IsNullOrEmpty(path)) return;
+                if (!string.Equals(Path.GetExtension(path), ".json", StringComparison.OrdinalIgnoreCase)) return;
+                ThreadPool.QueueUserWorkItem(delegate
                 {
-                    try { text = File.ReadAllText(path, Encoding.UTF8); break; } catch { Thread.Sleep(120); }
-                }
-                try { File.Delete(path); } catch { }
-                if (text == null) return;
-                JavaScriptSerializer js = new JavaScriptSerializer();
-                var d = js.DeserializeObject(text) as IDictionary<string, object>;
-                if (d == null) return;
-                string id = d.ContainsKey("id") ? (d["id"] + "") : Guid.NewGuid().ToString("N");
-                // 防路径注入：id 只允许 32 位十六进制（本系统生成的 GUID-N 格式）
-                if (!System.Text.RegularExpressions.Regex.IsMatch(id, "^[0-9a-f]{32}$")) return;
-                if (_seenEventIds.Contains(id)) return;
-                _seenEventIds.Add(id);
-                string app = d.ContainsKey("app") ? (d["app"] + "") : "zcode";
-                string kind = d.ContainsKey("kind") ? (d["kind"] + "") : "notify";
-                string title = d.ContainsKey("title") ? (d["title"] + "") : "通知";
-                string body = d.ContainsKey("body") ? (d["body"] + "") : "";
-                string[] buttons = null;
-                if (kind == "confirm" && d.ContainsKey("buttons"))
+                    DropReq evt = TryConsumeDropFile(path);
+                    if (evt == null) return;
+                    Dispatcher.BeginInvoke((Action)delegate { HandleEventFile(evt); }, DispatcherPriority.Background);
+                });
+            }
+            catch { }
+        }
+
+        private class DropReq
+        {
+            public string Id, App, Kind, Title, Body;
+            public string[] Buttons;
+            public int TimeoutSec;
+        }
+
+        // 后台线程调用：读+解析重试，解析成功才删文件。返回 null = 放弃（文件保留，等下一个事件再试）。
+        // 此前「先删后验」：Created 早于 writer 完成时读到空串也当成功 → 文件被删且静默丢弃（联调实验 3-4 元凶）。
+        private DropReq TryConsumeDropFile(string path)
+        {
+            JavaScriptSerializer js = new JavaScriptSerializer();
+            for (int i = 0; i < 8; i++)
+            {
+                IDictionary<string, object> d = null;
+                try { d = js.DeserializeObject(File.ReadAllText(path, Encoding.UTF8)) as IDictionary<string, object>; }
+                catch { d = null; }
+                if (d != null)
                 {
-                    var arr = d["buttons"] as IEnumerable<object>;
-                    if (arr != null)
+                    // 防路径注入：id 只允许 32 位十六进制（本系统生成的 GUID-N 格式）；非本协议文件不动
+                    string id = d.ContainsKey("id") ? (d["id"] + "") : null;
+                    if (id == null || !System.Text.RegularExpressions.Regex.IsMatch(id, "^[0-9a-f]{32}$")) return null;
+                    lock (_seenEventIds)
                     {
-                        List<string> bl = new List<string>();
-                        foreach (object o in arr) bl.Add(o + "");
-                        buttons = bl.ToArray();
+                        if (_seenEventIds.Contains(id)) { try { File.Delete(path); } catch { } return null; }   // 重复事件：清掉同名残留
+                        _seenEventIds.Add(id);
+                        if (_seenEventIds.Count > 1024) _seenEventIds.Clear();
                     }
-                    if (buttons == null || buttons.Length == 0) buttons = new string[] { "允许", "拒绝" };
+                    string app = d.ContainsKey("app") ? (d["app"] + "") : "zcode";
+                    string kind = d.ContainsKey("kind") ? (d["kind"] + "") : "notify";
+                    string title = d.ContainsKey("title") ? (d["title"] + "") : "通知";
+                    string body = d.ContainsKey("body") ? (d["body"] + "") : "";
+                    string[] buttons = null;
+                    if (kind == "confirm" && d.ContainsKey("buttons"))
+                    {
+                        var arr = d["buttons"] as IEnumerable<object>;
+                        if (arr != null)
+                        {
+                            List<string> bl = new List<string>();
+                            foreach (object o in arr) bl.Add(o + "");
+                            buttons = bl.ToArray();
+                        }
+                        if (buttons == null || buttons.Length == 0) buttons = new string[] { "允许", "拒绝" };
+                    }
+                    int timeoutSec = 120;
+                    if (d.ContainsKey("timeout"))
+                    {
+                        double t;
+                        if (double.TryParse(d["timeout"] + "", out t) && t > 0) timeoutSec = (int)t;
+                    }
+                    try { File.Delete(path); } catch { }   // 解析成功才删（此时才算消费）
+                    Dbg("consume drop id=" + id + " app=" + app + " kind=" + kind + " try=" + i);
+                    return new DropReq { Id = id, App = app, Kind = kind, Title = title, Body = body, Buttons = buttons, TimeoutSec = timeoutSec };
                 }
-                int timeoutSec = 120;
-                if (d.ContainsKey("timeout"))
-                {
-                    double t;
-                    if (double.TryParse(d["timeout"] + "", out t) && t > 0) timeoutSec = (int)t;
-                }
-                Dbg("HandleEventFile parsed id=" + id + " app=" + app + " kind=" + kind);
-                ShowEventBubble(id, app, kind, title, body, buttons, timeoutSec);
-                Dbg("HandleEventFile shown ok");
+                Thread.Sleep(150);   // 读失败/空串/半截 JSON：writer 大概率仍在写，稍等重试
+            }
+            Dbg("consume drop giveup (keep file): " + path);
+            return null;
+        }
+
+        // UI 线程：消费已解析的请求 → 气泡
+        private void HandleEventFile(DropReq evt)
+        {
+            try
+            {
+                if (evt == null) return;
+                ShowEventBubble(evt.Id, evt.App, evt.Kind, evt.Title, evt.Body, evt.Buttons, evt.TimeoutSec);
+                Dbg("HandleEventFile shown ok id=" + evt.Id);
             }
             catch (Exception ex) { Dbg("HandleEventFile ERR: " + ex); }
         }
