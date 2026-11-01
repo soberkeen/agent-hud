@@ -67,7 +67,20 @@ agent-hud.exe -debugdata    测试两个数据源（只输出成败与数字，�
 }
 ```
 
-`PermissionRequest` 的阻塞回传：HUD 确认气泡点「允许」→ hook 退出码 0（放行）；点「拒绝」→ 退出码 2（阻断）；超时 → 3。DSH 会话可用官方桥接包 `@deepseek-ai/dsh-hooks-claude-code` 复用同一份 hooks.json。
+`PermissionRequest` 的阻塞回传：HUD 确认气泡点「允许」→ hook 退出码 0（放行）；点「拒绝」→ 退出码 2（阻断）；超时 → 3。
+
+## DSH 接入（需安装 dsh-approval-bridge 插件）
+
+DSH（DeepSeek Harness 桌面端）的权限确认/通知接入**需要安装 DSH 侧插件**：
+[**soberkeen/dsh-approval-bridge**](https://github.com/soberkeen/dsh-approval-bridge)。
+
+- 它是 DSH 原生 cordis 插件，拦截 agent 运行时的 `PermissionRequest`，按文件协议写入
+  HUD 事件通道（`%LOCALAPPDATA%\AgentHUD\events\drop\`），与 DSH 原生审批卡片**并行平级、先到先得**
+- HUD 弹确认气泡 → 用户点「允许/拒绝」→ 决策写回 `resp\` → 插件 200ms 内取走放行/阻断；
+  双方均超时（默认 110 秒）按拒绝处理（fail-closed）
+- 安装、配置与联调判据见该插件仓库的说明
+- 注意：官方桥接包 `@deepseek-ai/dsh-hooks-claude-code` 的 `PermissionRequest` 事件在其
+  不支持列表中，**不能**用于 DSH 权限确认——该场景必须用上述插件
 
 ## 数据与密钥
 
