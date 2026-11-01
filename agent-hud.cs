@@ -49,8 +49,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Agent HUD：HDR 开关 + DeepSeek 余额 + GLM 订阅用量悬浮侧边栏")]
 [assembly: AssemblyCompany("Agent HUD Project")]
 [assembly: AssemblyCopyright("Copyright (C) 2026 Agent HUD Project")]
-[assembly: AssemblyVersion("2.9.3.0")]
-[assembly: AssemblyFileVersion("2.9.3.0")]
+[assembly: AssemblyVersion("2.9.4.0")]
+[assembly: AssemblyFileVersion("2.9.4.0")]
 
 namespace AgentHud
 {
@@ -2236,7 +2236,9 @@ namespace AgentHud
         {
             _tailSide = tailSide; _tailY = anchorY;
             bool tailRight = tailSide == "right";
-            Popup.HorizontalOffset = tailRight ? edgeX : edgeX - 288;
+            // edgeX = 气泡尾侧边缘的屏幕 X：尾在右（气泡在 HUD 左）→ 左缘 = edgeX - 宽度；
+            // 尾在左（气泡在 HUD 右）→ 左缘 = edgeX。v2.9.2 重构时两分支写反，气泡整面盖住 HUD。
+            Popup.HorizontalOffset = tailRight ? edgeX - 288 : edgeX;
             Popup.VerticalOffset = top;
             Popup.IsOpen = true;   // v2.9.3 修复：v2.9.2 气泡自适应重构时这行被吞，气泡从未真正弹出（"shown ok"只代表没抛异常）
             Dispatcher.CurrentDispatcher.BeginInvoke((Action)delegate
@@ -2244,7 +2246,7 @@ namespace AgentHud
                 try
                 {
                     double actualW = _frame.ActualWidth > 0 ? _frame.ActualWidth : 264;
-                    double offset = tailRight ? edgeX : edgeX - actualW;
+                    double offset = tailRight ? edgeX - actualW : edgeX;
                     Popup.HorizontalOffset = offset;
                     double tx = tailRight ? actualW - 3 : -3;
                     double fh = _frame.ActualHeight > 0 ? _frame.ActualHeight : 100;
