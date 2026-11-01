@@ -3,13 +3,14 @@
 规格全部对齐 agent-hud.cs 实测:窗口 104 DIP / 面板 #101216@0x80 r24 / HDR 58x58 r16 无光晕
 ON=#1F9D5C OFF=#353535 ARMED=#8A5000@B0 / 行高 76 GIF 74 / 点 10+9x9 / 气泡 288 r12 #2A2A2E@E8
 时间轴为固定常量(LINES 表),文案文档与画面共用同轴;口播配音不进片,由用户按 docs/宣传文案.md 自行录制
-音频 = 合成伴奏 + 音效 + Fish/Fox 角色人声(与 app VoiceCue 语义一致)
+无伴奏:音频 = UI 音效 + Fish/Fox 角色人声(与 app VoiceCue 语义一致),给后期口播/BGM 留干净底
+开场 HUD 独展于画面正中,SC2 起移回右缘归位演示功能
 用法:
   python gen_promo2.py all | audio | video | doc | frame T OUT | mux
 """
 import math, os, sys, subprocess, wave, json
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 HERE   = os.path.dirname(os.path.abspath(__file__))
 ROOT   = os.path.dirname(os.path.dirname(HERE))
@@ -418,14 +419,8 @@ def bubble_sprite(title, body, buttons=None, clicked=None):
             d.text((bx - bw / 2, y + S(15 * UIK)), lab, font=btn_f,
                    fill=(20, 60, 35, 255) if pressed else (26, 26, 26, 255), anchor='mm')
             bx -= bw + S(6 * UIK)
-    # 尾巴 11x11 r2 菱形(材质同气泡),贴右缘
-    tx, ty = fx0 + S(wd) - S(DT(3)), S(0)
-    tail = Image.new('RGBA', (S(DT(16)), S(DT(16))), (0, 0, 0, 0))
-    ImageDraw.Draw(tail).rounded_rectangle((S(2), S(2), S(DT(13)), S(DT(13))), S(DT(2)), fill=BUB_BG)
-    tail = tail.rotate(45, expand=True, resample=Image.BICUBIC)
-    spr.alpha_composite(tail, (int(tx - tail.width / 2), int(S(60) - tail.height / 2)))
     BUB_CACHE[key] = (spr, hd)
-    return spr, hd
+    return spr, hd   # 无尾巴,尾巴由 draw_bubble 按角色头位置动态画(对齐源码锚定)
 
 def make_v(w, h, c0, c1):
     g = Image.new('RGBA', (int(w), int(h)))
@@ -435,23 +430,38 @@ def make_v(w, h, c0, c1):
         d.line([(0, y), (int(w), y)], fill=tuple(int(lerp(c0[i], c1[i], k)) for i in range(4)))
     return g
 
-def draw_bubble(img, t, t0, row_cy, title, body, buttons=None, clicked_at=None, clicked_lab=None):
-    """气泡在 HUD 左侧,右缘尾巴指向角色头部;顶边≈行上方分割线(真实锚定)"""
-    k = eob(fi(t, t0, 0.34), 1.25)
-    if k <= 0.02: return
+def draw_bubble(img, t, t0, row_cy, title, body, buttons=None, clicked_at=None, clicked_lab=None, close_at=None):
+    """真实锚定(ShowEventBubble):顶边=角色行上方分割线,右缘贴 HUD-10DIP,
+    尾巴 11x11 菱形贴右缘指向角色头 Y(=行中心-5DIP,夹在气泡内);close_at=timeout 收摊"""
+    k = eob(fi(t, t0, 0.38), 1.3)
+    if close_at is not None and t >= close_at + 0.32: return
+    fout = fo(t, close_at, 0.3) if close_at is not None else 1.0
+    a = cl01(k * 2.5) * fout
+    if a <= 0.01 or k <= 0.02: return
     clicked = clicked_lab if (clicked_at and t >= clicked_at) else None
     spr, hd = bubble_sprite(title, body, buttons, clicked)
-    x1 = HUD_X0 - S(DT(10)) - spr.width      # 右缘贴 HUD-10DIP
+    sep_y = SEP1_Y if abs(row_cy - ROW1_C) < 1 else SEP2_Y
+    top = sep_y
     scale = lerp(0.86, 1.0, k)
     if scale < 0.999:
-        spr = spr.resize((int(spr.width * scale), int(spr.height * scale)), Image.LANCZOS)
-    y0 = row_cy - S(DT(30))
-    jig = math.sin(t * 2 * math.pi * 15) * S(3) * max(0.0, 1 - fi(t, t0 + 0.05, 0.5)) if t - t0 < 0.6 else 0
-    paste(img, spr, (x1, y0 + jig), alpha=cl01(k * 2.5))
+        spr = spr.resize((max(2, int(spr.width * scale)), max(2, int(spr.height * scale))), Image.LANCZOS)
+    px = S(HUD_X0 - DT(10)) + S(10) - spr.width      # 光栅坐标:气泡框右缘 = HUD左缘-10DIP
+    paste(img, spr, (px, S(top) - S(10)), alpha=a)
+    # 尾巴:材质同气泡,右缘外溢,指向角色头
+    hd_d = hd / RS
+    ty_d = top + min(max(row_cy - top - DT(5), DT(8)), hd_d - DT(16))
+    tail = Image.new('RGBA', (S(DT(16)), S(DT(16))), (0, 0, 0, 0))
+    ImageDraw.Draw(tail).rounded_rectangle((S(2), S(2), S(DT(13)), S(DT(13))), S(DT(2)), fill=BUB_BG)
+    tail = tail.rotate(45, expand=True, resample=Image.BICUBIC)
+    bx_r = S(HUD_X0 - DT(10))
+    paste(img, tail, (bx_r - tail.width / 2 - S(2), S(ty_d) - tail.height / 2),
+          alpha=a * cl01((k - 0.35) * 2.2))
 
 # ================= 全局 HUD 位 =================
-HUD_X0 = 1920 - 60 - DT(104)     # 面板右缘贴 1920-60
+HUD_X0 = 1920 - 60 - DT(104)     # 功能演示:面板右缘贴 1920-60
 HUD_Y0 = 168.0
+HUD_CX = (1920 - DT(104)) / 2    # 开场独展:画面正中
+HUD_CY = 150.0
 ROW1_C = HUD_Y0 + DT(16 + 76 + 7 + 38)
 ROW2_C = HUD_Y0 + DT(16 + 76 + 7 + 76 + 7 + 38)
 SEP1_Y = HUD_Y0 + DT(16 + 76 + 3.5)
@@ -562,10 +572,17 @@ def s1(lay, t):
     if peek_t <= t < b1:
         draw_tucked(lay, t)
     elif t >= b1:
-        k = eob(seg(t, b1, b1 + 0.92), 1.12)
-        hud_slide(lay, t, HUD_Y0, k, hdr='on')
+        # 单独展示:从右缘一路滑到画面正中(标题舞台)
+        k = eob(seg(t, b1, b1 + 0.95), 1.08)
+        x = lerp(1920 + 60, HUD_CX, k)
+        v = abs(1 - k) * (1920 + 60 - HUD_CX) / 240
+        if v > 0.3:
+            for gx, ga in ((x + v * 24, 0.12), (x + v * 12, 0.24)):
+                gh = new_layer(); draw_hud(gh, t, gx, HUD_CY, hdr='on')
+                paste(lay, gh, (0, 0), ga)
+        draw_hud(lay, t, x, HUD_CY, hdr='on')
     tt = nl('nar02') + 0.55
-    a = fi(t, tt, 0.4)
+    a = fi(t, tt, 0.4) * fo(t, sc0(2) + 0.25, 0.4)   # 场景结束前随 HUD 一起淡出
     if a > 0:
         title_sprite()
         k2 = eob(fi(t, tt, 0.5), 1.3)
@@ -573,22 +590,77 @@ def s1(lay, t):
         sc = lerp(1.10, 1.0, k2)
         if sc < 0.999:
             tsp = tsp.resize((int(tsp.width * sc), int(tsp.height * sc)), Image.LANCZOS)
-        paste_c(lay, tsp, (S(1120), S(400)), alpha=a)
+        paste_c(lay, tsp, (S(960), S(878)), alpha=a)
+        # 流光扫过标题(一次)
+        if 6.25 <= t <= 7.2 and a > 0.5:
+            ks = seg(t, 6.25, 7.15)
+            band_x = lerp(-S(180), SPR['title2'].width + S(40), ks)
+            shine = Image.new('RGBA', SPR['title2'].size, (0, 0, 0, 0))
+            sd = ImageDraw.Draw(shine)
+            for i in range(S(130)):
+                aa = int(150 * math.sin(math.pi * i / S(130)))
+                sd.line([(band_x + i, 0), (band_x + i, shine.height)], fill=(255, 255, 255, aa))
+            shine.putalpha(ImageChops.multiply(shine.getchannel('A'), SPR['title2'].getchannel('A')))
+            lay.alpha_composite(shine, (int(S(960) - shine.width / 2), int(S(878) - shine.height / 2)))
         d = ImageDraw.Draw(lay)
         a2 = fi(t, tt + 0.4, 0.4)
-        d.text((S(1120), S(498)), '把最常看的信息，钉在屏幕边上', font=f_reg(24),
+        d.text((S(960), S(944)), '把最常看的信息，钉在屏幕边上', font=f_reg(24),
                fill=INK[:3] + (int(225 * a2),), anchor='mm')
 
 def s2(lay, t):
-    draw_hud(lay, t, HUD_X0, HUD_Y0, hdr='on')
     d = ImageDraw.Draw(lay)
+    # ---- HUD 位置状态机:正中归位 → 静置 → 吸附演示(拖离/磁吸/半隐藏/唤醒) ----
+    X_TUCK = 1920 - DT(12)
+    GRAB, DRAG, REL, SNAP, TUCK, WAKE = 13.05, 13.35, 13.95, 14.0, 14.45, 14.95
+    if t < GRAB:
+        k = eoc(seg(t, sc0(2), sc0(2) + 0.62))
+        if k < 0.999:
+            x = lerp(HUD_CX, HUD_X0, k); y = lerp(HUD_CY, HUD_Y0, k)
+            v = k * (HUD_X0 - HUD_CX) / 240
+            if v > 0.25:
+                for gx, ga in ((x - v * 24, 0.12), (x - v * 12, 0.24)):
+                    gh = new_layer(); draw_hud(gh, t, gx, y, hdr='on')
+                    paste(lay, gh, (0, 0), ga)
+            draw_hud(lay, t, x, y, hdr='on')
+        else:
+            draw_hud(lay, t, HUD_X0, HUD_Y0, hdr='on')
+        if t > 12.55:   # 光标移向把手
+            k = eios(seg(t, 12.55, GRAB))
+            draw_cursor(lay, (lerp(S(1500), S(HUD_X0 + DT(52)), k), lerp(S(820), S(HUD_Y0 + DT(8)), k)))
+    elif t < REL:   # 抓住把手拖离边缘
+        k = eios(seg(t, DRAG, REL))
+        hx = lerp(HUD_X0, HUD_X0 - DT(340), k)
+        draw_hud(lay, t, hx, HUD_Y0, hdr='on')
+        hp = (hx + DT(52), HUD_Y0 + DT(8))
+        d.ellipse((S(hp[0]) - S(16), S(hp[1]) - S(16), S(hp[0]) + S(16), S(hp[1]) + S(16)),
+                  outline=(255, 255, 255, 130), width=S(1.6))
+        draw_cursor(lay, (S(hp[0]), S(hp[1])))
+    elif t < TUCK:  # 松手 → 磁吸回弹贴合(过冲即撞击感)
+        k = eob(seg(t, SNAP, TUCK), 1.35)
+        hx = lerp(HUD_X0 - DT(340), X_TUCK, k)
+        draw_hud(lay, t, hx, HUD_Y0, hdr='on')
+        if abs(t - (SNAP + 0.22)) < 0.14:
+            ripple(lay, (S(X_TUCK + DT(6)), S(HUD_Y0 + DT(130))), (t - SNAP - 0.08) / 0.28)
+        ka = fi(t, SNAP + 0.3, 0.25)
+        if ka < 1: draw_cursor(lay, (S(HUD_X0 + DT(52)), S(HUD_Y0 + DT(8))), alpha=1 - ka)
+    elif t < WAKE:  # 半隐藏 sliver + 点击唤醒
+        draw_hud(lay, t, X_TUCK, HUD_Y0, hdr='on')
+        k = eios(seg(t, TUCK + 0.1, WAKE - 0.06))
+        draw_cursor(lay, (lerp(S(HUD_X0 + DT(52)), S(X_TUCK + DT(5)), k), S(HUD_Y0 + DT(130))))
+        if abs(t - (WAKE - 0.08)) < 0.1:
+            ripple(lay, (S(X_TUCK + DT(6)), S(HUD_Y0 + DT(130))), (t - WAKE + 0.18) / 0.24)
+    else:           # 唤醒滑出
+        k = eoc(seg(t, WAKE, WAKE + 0.5))
+        draw_hud(lay, t, lerp(X_TUCK, HUD_X0, k), HUD_Y0, hdr='on')
+    # 标注(吸附演示开始前淡出)
+    cal_a = fo(t, 12.75, 0.35)
     t3 = nl('nar03')
     for (t0, cy, txt, col) in ((t3 + 0.25, HUD_Y0 + DT(54), 'HDR 开关 · 双击确认', GREEN),
                                (t3 + 1.45, ROW1_C, '大肥鱼 · DeepSeek 余额', BLUE),
                                (t3 + 2.65, ROW2_C, '噶漏姆 · GLM 双额度圈', VIOLET)):
-        k = fi(t, t0, 0.45)
+        k = fi(t, t0, 0.45) * cal_a
         if k <= 0.01: continue
-        ln = eoc(k) * DT(30)
+        ln = eoc(cl01(k)) * DT(30)
         tx = HUD_X0 - DT(14) - ln
         d.line([(S(tx), S(cy)), (S(HUD_X0 - DT(14)), S(cy))], fill=(255, 255, 255, int(120 * k)), width=S(1.4))
         d.ellipse((S(HUD_X0 - DT(16)), S(cy) - S(2.4), S(HUD_X0 - DT(11)), S(cy) + S(2.4)),
@@ -649,8 +721,8 @@ def s3(lay, t):
 
 def s4(lay, t):
     t6 = nl('nar06')
-    ods = eoc(seg(t, t6 + 1.0, t6 + 1.38)) * (1 - eoc(seg(t, sc1(4) - 0.5, sc1(4) - 0.2)))
-    ozc = eoc(seg(t, t6 + 3.5, t6 + 3.88)) * (1 - eoc(seg(t, sc1(4) - 0.5, sc1(4) - 0.2)))
+    ods = eob(seg(t, t6 + 1.0, t6 + 1.42), 1.3) * (1 - eoc(seg(t, sc1(4) - 0.5, sc1(4) - 0.2)))
+    ozc = eob(seg(t, t6 + 3.5, t6 + 3.92), 1.3) * (1 - eoc(seg(t, sc1(4) - 0.5, sc1(4) - 0.2)))
     fill_k = seg(t, t6 + 3.7, t6 + 4.9)
     ds_open_t = t6 + 1.0
     txt_full = '¥ 42.13'
@@ -676,20 +748,22 @@ def s4(lay, t):
 def s5(lay, t):
     draw_hud(lay, t, HUD_X0, HUD_Y0, hdr='on')
     b1 = nl('nar08') + 1.15
-    draw_bubble(lay, t, b1, ROW2_C, '任务完成', 'ZCode 会话已结束，快回来看一眼吧')
+    draw_bubble(lay, t, b1, ROW2_C, '任务完成', 'ZCode 会话已结束，快回来看一眼吧',
+                close_at=nl('nar09') + 0.25)   # 通知气泡按 timeout 收摊,给确认气泡让位
     b2 = nl('nar09') + 0.5
     click_t = nl('nar09') + 2.75
     draw_bubble(lay, t, b2, ROW1_C, '权限请求', 'agent-hud.exe 请求执行构建',
                 buttons=('拒绝', '允许'), clicked_at=click_t, clicked_lab='允许')
     if t >= click_t + 0.12:
-        chip(lay, (S(1430), S(ROW1_C + DT(96))), '已放行 · hook 退出码 0', fi(t, click_t + 0.12, 0.35))
-    # 光标点允许
+        chip(lay, (S(HUD_X0 - DT(120)), S(SEP1_Y + DT(116))), '已放行 · hook 退出码 0', fi(t, click_t + 0.12, 0.35))
+    # 光标点允许(允许钮在气泡右下:距面板 10DIP+右缘内 12DIP+半宽,行上方分割线下 75DIP)
+    btn_c = (HUD_X0 - DT(52), SEP1_Y + DT(75))
     if t >= nl('nar09') + 1.6:
         k = eios(seg(t, nl('nar09') + 1.6, click_t - 0.1))
-        cur = (lerp(S(1500), S(1430), k), lerp(S(950), S(ROW1_C + DT(52)), k))
+        cur = (lerp(S(1500), S(btn_c[0]), k), lerp(S(950), S(btn_c[1]), k))
         draw_cursor(lay, cur)
         if abs(t - click_t) < 0.15:
-            ripple(lay, (S(1430), S(ROW1_C + DT(52))), (t - click_t + 0.15) / 0.3)
+            ripple(lay, (S(btn_c[0]), S(btn_c[1])), (t - click_t + 0.15) / 0.3)
 
 def s6(lay, t):
     t0 = nl('nar10') - 0.6
@@ -769,7 +843,7 @@ def s7(lay, t):
                    fill=DOT_G[:3] + (int(255 * ka),), anchor='lm')
     # 回声气泡
     draw_bubble(lay, t, t12 + 3.3, ROW1_C, '构建完成', '473 项测试全部通过')
-    chip(lay, (S(1430), S(ROW1_C + DT(96))), '任何程序 · 一行接入', fi(t, t12 + 3.75, 0.35), color=BLUE)
+    chip(lay, (S(HUD_X0 - DT(120)), S(SEP1_Y + DT(76))), '任何程序 · 一行接入', fi(t, t12 + 3.75, 0.35), color=BLUE)
 
 def s8(lay, t):
     t0 = sc0(8)
@@ -811,7 +885,7 @@ def render_frame(idx):
     draw_bg(img, t, hdr_amt)
     lay = new_layer()
     for scn, (a, b) in TL['scenes'].items():
-        if a - 0.4 <= t <= b + 0.05:
+        if a <= t <= b + 0.05:   # 精确窗口:场景互不叠画(入场动画各自在窗口内完成)
             SCENE_FN[scn](lay, min(t, b))
     if SUBS:
         for (key, sub, sc, t0, t1) in LINES:
@@ -912,6 +986,7 @@ def build_music(dur):
     return np.stack(buf)
 
 def add_sfx(buf, t0, kind, gain=1.0):
+    """圆润版:纯正弦+软包络,无方波无高频噪声"""
     N = len(buf[0]); i0 = int(t0 * SR)
     if i0 >= N: return
     n_max = N - i0
@@ -919,44 +994,47 @@ def add_sfx(buf, t0, kind, gain=1.0):
         n = min(len(sig), n_max)
         buf[0][i0:i0 + n] += sig[:n]; buf[1][i0:i0 + n] += sig[:n]
     if kind == 'whoosh':
-        n = int(0.55 * SR)
+        n = int(0.6 * SR)
         x = np.random.default_rng(7).standard_normal(n)
-        x = np.convolve(x, np.ones(90) / 90, mode='same')
-        put(x * np.sin(np.linspace(0, math.pi, n)) ** 1.5 * 0.5 * gain)
+        x = np.convolve(x, np.ones(150) / 150, mode='same')
+        env = np.sin(np.linspace(0, math.pi, n)) ** 2
+        put(x * env * 0.42 * gain)
     elif kind == 'click':
-        n = int(0.03 * SR); tt = np.arange(n) / SR
-        sig = np.sin(2 * np.pi * 1900 * tt) * np.exp(-tt / 0.006) * 0.5
-        sig += np.random.default_rng(3).standard_normal(n) * np.exp(-tt / 0.002) * 0.35
+        n = int(0.06 * SR); tt = np.arange(n) / SR
+        sig = (np.sin(2 * np.pi * 1150 * tt) + 0.5 * np.sin(2 * np.pi * 575 * tt)) \
+              * np.exp(-tt / 0.014) * 0.4
         put(sig * gain)
     elif kind == 'tick':
-        n = int(0.09 * SR); tt = np.arange(n) / SR
-        put(np.sign(np.sin(2 * np.pi * 1150 * tt)) * np.exp(-tt / 0.035) * 0.16 * gain)
+        n = int(0.1 * SR); tt = np.arange(n) / SR
+        put(np.sin(2 * np.pi * 830 * tt) * np.exp(-tt / 0.05) * 0.11 * gain)
     elif kind == 'thunk':
-        n = int(0.16 * SR); tt = np.arange(n) / SR
-        put(np.sin(2 * np.pi * (95 * np.exp(-tt / 0.04) + 48) * tt) * np.exp(-tt / 0.06) * 0.6 * gain)
+        n = int(0.18 * SR); tt = np.arange(n) / SR
+        put(np.sin(2 * np.pi * (95 * np.exp(-tt / 0.05) + 48) * tt) * np.exp(-tt / 0.08) * 0.5 * gain)
     elif kind == 'shimmer':
         n = int(1.2 * SR); tt = np.arange(n) / SR
         sig = sum(np.sin(2 * np.pi * midi2f(m) * tt) * np.exp(-tt / (0.45 + i * 0.1))
-                  for i, m in enumerate([81, 85, 88, 93])) * 0.05
+                  for i, m in enumerate([81, 85, 88, 93])) * 0.045
         put(sig * gain)
     elif kind == 'pop':
-        n = int(0.09 * SR); tt = np.arange(n) / SR
-        f = 320 + 2600 * tt / 0.09
-        put(np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-tt / 0.035) * 0.4 * gain)
+        n = int(0.13 * SR); tt = np.arange(n) / SR
+        f = 240 + 580 * (tt / 0.13)
+        env = np.minimum(tt / 0.008, 1) * np.exp(-tt / 0.06)
+        put(np.sin(2 * np.pi * np.cumsum(f) / SR) * env * 0.3 * gain)
     elif kind == 'chime':
         for i, m in enumerate([76, 81]):
-            n = int(0.6 * SR); tt = np.arange(n) / SR
-            sig = np.sin(2 * np.pi * midi2f(m) * tt) * np.exp(-tt / 0.22) * 0.16
-            i2 = i0 + int(i * 0.09 * SR)
+            n = int(0.7 * SR); tt = np.arange(n) / SR
+            sig = np.sin(2 * np.pi * midi2f(m) * tt) * np.exp(-tt / 0.3) * 0.13
+            i2 = i0 + int(i * 0.1 * SR)
             if i2 < N:
                 nn = min(len(sig), N - i2)
                 buf[0][i2:i2 + nn] += sig[:nn]; buf[1][i2:i2 + nn] += sig[:nn]
     elif kind == 'blip':
-        n = int(0.07 * SR); tt = np.arange(n) / SR
-        put(np.sin(2 * np.pi * 740 * tt) * np.exp(-tt / 0.028) * 0.13 * gain)
+        n = int(0.08 * SR); tt = np.arange(n) / SR
+        sig = np.sin(2 * np.pi * 620 * tt) * np.minimum(tt / 0.004, 1) * np.exp(-tt / 0.045) * 0.1
+        put(sig * gain)
     elif kind == 'key':
-        n = int(0.025 * SR); tt = np.arange(n) / SR
-        put(np.sin(2 * np.pi * 2400 * tt) * np.exp(-tt / 0.004) * 0.05 * gain)
+        n = int(0.04 * SR); tt = np.arange(n) / SR
+        put(np.sin(2 * np.pi * 950 * tt) * np.exp(-tt / 0.012) * 0.05 * gain)
 
 def load_voice(path, peak=0.85):
     wf = wave.open(path, 'rb')
@@ -967,20 +1045,15 @@ def load_voice(path, peak=0.85):
     return a * peak
 
 def build_audio():
+    """音轨 = 圆润 UI 音效,无伴奏无人声,给后期口播/BGM 留干净底"""
     dur = TLd()
-    music = build_music(dur)
-    # 闪避包络:角色人声期间音乐压低
-    duck = np.ones(int(dur * SR) + SR)
-    def duck_seg(t0, t1, to=0.32):
-        i0 = int(max(0, (t0 - 0.06) * SR)); i1 = int((t1 + 0.22) * SR)
-        dn = np.linspace(1, to, int(0.08 * SR)); up = np.linspace(to, 1, int(0.3 * SR))
-        duck[i0:i0 + len(dn)] = np.minimum(duck[i0:i0 + len(dn)], dn)
-        duck[i0 + len(dn):max(i0 + len(dn), i1)] = np.minimum(duck[i0 + len(dn):max(i0 + len(dn), i1)], to)
-        duck[i1:i1 + len(up)] = np.minimum(duck[i1:i1 + len(up)], up)
-    # 音效事件
     sfx = [np.zeros(int(dur * SR)), np.zeros(int(dur * SR))]
-    EV = [(nl('nar02') - 0.28, 'whoosh', 1.0),
+    EV = [(nl('nar02') - 0.28, 'whoosh', 0.9),
+          (sc0(2) + 0.05, 'whoosh', 0.7),
           (nl('nar03') + 0.25, 'blip', 0.8), (nl('nar03') + 1.45, 'blip', 0.8), (nl('nar03') + 2.65, 'blip', 0.8),
+          # 吸附演示:抓取/拖离/松手回弹/磁吸贴合/半隐藏/唤醒
+          (13.05, 'tick', 1.0), (14.0, 'whoosh', 0.55), (14.28, 'thunk', 0.8),
+          (14.45, 'whoosh', 0.4), (14.95, 'pop', 0.7),
           (nl('nar04') + 1.9, 'click', 1.0), (nl('nar04') + 1.96, 'tick', 1.0),
           (nl('nar04') + 3.3, 'click', 1.0), (nl('nar04') + 3.36, 'thunk', 1.0),
           (nl('nar05') + 0.35, 'shimmer', 0.9),
@@ -997,20 +1070,7 @@ def build_audio():
         EV.append((tt_, 'key', 1.0)); tt_ += 0.075
     for (t0, kind, g) in EV:
         add_sfx(sfx, t0, kind, g)
-    mix = music * 0.34 * duck[:music.shape[1]][None, :]
-    mix += np.stack(sfx) * 0.9
-    # 角色人声点缀(dsh→Fish,其余→Fox,与 VoiceCue 语义一致):跟气泡/点击走
-    stings = [(nl('nar08') + 1.3, 'Fox.mp3'), (nl('nar09') + 2.9, 'Fish.mp3'),
-              (nl('nar13') + 0.5, 'Fox.mp3'), (nl('nar13') + 1.7, 'Fish.mp3')]
-    for (t0, f) in stings:
-        src = os.path.join(BUILD, 'v_' + f.replace('.mp3', '.wav'))
-        if not os.path.exists(src):
-            subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', os.path.join(VOICE, f),
-                            '-ar', str(SR), '-ac', '2', '-sample_fmt', 's16', src], check=True)
-        d = load_voice(src, 0.9)
-        i0 = int(t0 * SR); i1 = min(i0 + len(d), int(dur * SR))
-        mix[:, i0:i1] += d[:i1 - i0].T
-        duck_seg(t0, t0 + len(d) / SR, 0.30)
+    mix = np.stack(sfx) * 0.95
     fo = int(0.9 * SR)
     mix[:, -fo:] *= np.linspace(1, 0, fo)[None, :]
     peak = np.abs(mix).max()
@@ -1019,7 +1079,7 @@ def build_audio():
     wf = wave.open(os.path.join(BUILD, 'audio2.wav'), 'wb')
     wf.setnchannels(2); wf.setsampwidth(2); wf.setframerate(SR)
     wf.writeframes(pcm.tobytes()); wf.close()
-    print('audio2 ok, dur=%.2f peak=%.3f' % (dur, peak))
+    print('audio2 ok (sfx only), dur=%.2f peak=%.3f' % (dur, peak))
 
 # ================= 主流程 =================
 def low_priority():
