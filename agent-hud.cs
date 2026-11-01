@@ -49,8 +49,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Agent HUD：HDR 开关 + DeepSeek 余额 + GLM 订阅用量悬浮侧边栏")]
 [assembly: AssemblyCompany("Agent HUD Project")]
 [assembly: AssemblyCopyright("Copyright (C) 2026 Agent HUD Project")]
-[assembly: AssemblyVersion("2.9.10.0")]
-[assembly: AssemblyFileVersion("2.9.10.0")]
+[assembly: AssemblyVersion("2.9.11.0")]
+[assembly: AssemblyFileVersion("2.9.11.0")]
 
 namespace AgentHud
 {
@@ -1238,8 +1238,10 @@ namespace AgentHud
                             { "args", new object[] { "-notify", "任务完成", "ZCode 会话已结束", "zcode" } }, { "timeoutMs", 15000 } };
                         var permHook = new Dictionary<string, object> { { "type", "process" }, { "command", exe },
                             { "args", new object[] { "-confirm", "--title", "权限请求", "--body", "ZCode 请求执行操作，请在 HUD 上选择", "--app", "zcode", "--timeout", "110", "--wait" } }, { "timeoutMs", 120000 } };
+                        var permNotifyHook = new Dictionary<string, object> { { "type", "process" }, { "command", exe },
+                            { "args", new object[] { "-notify", "Agent 提问", "ZCode 正在等待你的回答，请回到会话窗口查看选项", "zcode" } }, { "timeoutMs", 15000 } };
                         // 追加而非覆盖：用户已有的同名事件 hook 保留
-                        foreach (var pair in new[] { new KeyValuePair<string, object>("Stop", (object)stopHook), new KeyValuePair<string, object>("PermissionRequest", (object)permHook) })
+                        foreach (var pair in new[] { new KeyValuePair<string, object>("Stop", (object)stopHook) })
                         {
                             var list = events.ContainsKey(pair.Key) && events[pair.Key] is IEnumerable<object>
                                 ? new List<object>(((IEnumerable<object>)events[pair.Key])) : new List<object>();
@@ -1256,6 +1258,25 @@ namespace AgentHud
                                 events[pair.Key] = list.ToArray();
                             }
                         }
+                        // v2.9.11：PermissionRequest 按工具名分流——AskUserQuestion（提问）→ 纯 notify，其余工具 → confirm
+                        // 迁移：旧版安装的无 matcher 单条目（含本 exe）替换为分流双条目；已是新形态则幂等跳过
+                        var prList = events.ContainsKey("PermissionRequest") && events["PermissionRequest"] is IEnumerable<object>
+                            ? new List<object>(((IEnumerable<object>)events["PermissionRequest"])) : new List<object>();
+                        bool hasNotifyMatcher = false, hasConfirmMatcher = false;
+                        for (int i = prList.Count - 1; i >= 0; i--)
+                        {
+                            var d = prList[i] as IDictionary<string, object>;
+                            if (d == null || !d.ContainsKey("hooks") || !SerializeContainsCommand(d["hooks"], exe)) continue;
+                            string m = d.ContainsKey("matcher") ? (d["matcher"] + "") : null;
+                            if (m == "^AskUserQuestion$") { hasNotifyMatcher = true; continue; }
+                            if (m == "^(?!AskUserQuestion$).+$") { hasConfirmMatcher = true; continue; }
+                            prList.RemoveAt(i);   // 旧版无 matcher 条目 → 迁移删除
+                        }
+                        if (!hasNotifyMatcher)
+                            prList.Add(new Dictionary<string, object> { { "matcher", "^AskUserQuestion$" }, { "hooks", new object[] { permNotifyHook } } });
+                        if (!hasConfirmMatcher)
+                            prList.Add(new Dictionary<string, object> { { "matcher", "^(?!AskUserQuestion$).+$" }, { "hooks", new object[] { permHook } } });
+                        events["PermissionRequest"] = prList.ToArray();
                         hooks["events"] = events;
                         root["hooks"] = hooks;
                         File.WriteAllText(cfgPath, js.Serialize(root), new UTF8Encoding(false));   // 无 BOM：Node JSON.parse 不接受 BOM
