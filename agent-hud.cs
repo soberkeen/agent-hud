@@ -2891,6 +2891,9 @@ namespace AgentHud
                     }
                     catch { }
                 };
+                // 启动时扫描 drop 目录里已有的未消费请求（FSW 只检测启动后的新文件）
+                foreach (string f in Directory.GetFiles(EventChannel.DropDir(), "*.json"))
+                    HandleEventFile(f);
             }
             catch { }
         }
