@@ -58,10 +58,15 @@ agent-hud.exe -debugdata    测试两个数据源（只输出成败与数字，�
       "Stop": [{ "hooks": [{ "type": "process",
         "command": "C:\Users\<你>\AppData\Local\Programs\Agent HUD\agent-hud.exe",
         "args": ["-notify", "任务完成", "ZCode 会话已结束", "zcode"], "timeoutMs": 15000 }] }],
-      "PermissionRequest": [{ "hooks": [{ "type": "process",
-        "command": "C:\Users\<你>\AppData\Local\Programs\Agent HUD\agent-hud.exe",
-        "args": ["-confirm", "--title", "权限请求", "--body", "ZCode 请求执行操作", "--app", "zcode", "--timeout", "110", "--wait"],
-        "timeoutMs": 120000 }] }]
+      "PermissionRequest": [
+        { "matcher": "^AskUserQuestion$", "hooks": [{ "type": "process",
+          "command": "C:\Users\<你>\AppData\Local\Programs\Agent HUD\agent-hud.exe",
+          "args": ["-notify", "Agent 提问", "ZCode 正在等待你的回答，请回到会话窗口查看选项", "zcode"], "timeoutMs": 15000 }] },
+        { "matcher": "^(?!AskUserQuestion$).+$", "hooks": [{ "type": "process",
+          "command": "C:\Users\<你>\AppData\Local\Programs\Agent HUD\agent-hud.exe",
+          "args": ["-confirm", "--title", "权限请求", "--body", "ZCode 请求执行操作", "--app", "zcode", "--timeout", "110", "--wait"],
+          "timeoutMs": 120000 }] }
+      ]
     }
   }
 }
