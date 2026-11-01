@@ -49,8 +49,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Agent HUD：HDR 开关 + DeepSeek 余额 + GLM 订阅用量悬浮侧边栏")]
 [assembly: AssemblyCompany("Agent HUD Project")]
 [assembly: AssemblyCopyright("Copyright (C) 2026 Agent HUD Project")]
-[assembly: AssemblyVersion("2.9.6.0")]
-[assembly: AssemblyFileVersion("2.9.6.0")]
+[assembly: AssemblyVersion("2.9.7.0")]
+[assembly: AssemblyFileVersion("2.9.7.0")]
 
 namespace AgentHud
 {
@@ -2218,9 +2218,9 @@ namespace AgentHud
             Popup.Child = _outer;
             if (kind != "confirm")
             {
-                // notify：8 秒自动消失；confirm 的超时由 ShowEventBubble 的 toTimer 统一负责
-                // （此前双定时器先到者会写出 timeout:false 的响应，令 CLI 空转至真正期限）
-                _life = new DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
+                // notify：按请求 timeout 自动收摊（协议 §2：HUD 倒计时用 timeout 字段）——
+                // 此前硬编码 8s，与 DSH v0.2.0 notify timeout=8 巧合一致才未穿帮
+                _life = new DispatcherTimer { Interval = TimeSpan.FromSeconds(Math.Max(3, timeoutSec)) };
                 _life.Tick += delegate { Close(); };
                 _life.Start();
             }
