@@ -23,3 +23,8 @@ tools/roundtrip-test.py
 # 本地 ZCode 工具配置
 .zcode/
 *-sim.png
+
+# 宣传片中间产物
+promo/AgentHUD-promo.mp4
+tools/promo/build/
+tools/promo/probe/
