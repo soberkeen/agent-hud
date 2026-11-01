@@ -27,6 +27,8 @@ $iconDfy = Join-Path $PSScriptRoot 'icon-dafeiyu.png'
 $iconZc  = Join-Path $PSScriptRoot 'icon-zcode.png'
 $resDfy  = '-res:{0},Icon.Dafeiyu.png' -f $iconDfy
 $resZc   = '-res:{0},Icon.Zcode.png'   -f $iconZc
+$resFish = '-res:{0},Voice.Fish.mp3' -f (Join-Path $PSScriptRoot 'voice\Fish.mp3')
+$resFox  = '-res:{0},Voice.Fox.mp3'  -f (Join-Path $PSScriptRoot 'voice\Fox.mp3')
 # 动画精灵图不再内嵌主程序（外置 assets 文件夹）；安装器以 Asset. 前缀内嵌并在安装时释放
 $resAssets = @()
 Get-ChildItem $PSScriptRoot -Filter 'anim-*.png' | ForEach-Object {
@@ -44,7 +46,7 @@ Get-ChildItem $PSScriptRoot -Filter 'anim-*.gif' | ForEach-Object {
     -r:"$framework\System.Web.Extensions.dll" `
     -r:"$framework\System.Windows.Forms.dll" -r:"$framework\System.Drawing.dll" `
     -r:"C:\Windows\Microsoft.NET\assembly\GAC_MSIL\UIAutomationClient\v4.0_4.0.0.0__31bf3856ad364e35\UIAutomationClient.dll" -r:"C:\Windows\Microsoft.NET\assembly\GAC_MSIL\UIAutomationTypes\v4.0_4.0.0.0__31bf3856ad364e35\UIAutomationTypes.dll" `
-    $resDfy $resZc $src
+    $resDfy $resZc $resFish $resFox $src
     if ($LASTEXITCODE -ne 0) { throw "hdr-toggle.exe 编译失败 (exit $LASTEXITCODE)" }
 }
 
