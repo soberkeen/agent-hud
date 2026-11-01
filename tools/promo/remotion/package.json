@@ -1,0 +1,18 @@
+{
+  "name": "agent-hud-promo",
+  "private": true,
+  "scripts": {
+    "render": "remotion render src/index.ts Promo out/promo.mp4"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.x",
+    "@remotion/gif": "4.0.x",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "4.0.x"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "typescript": "^5.5.4"
+  }
+}
