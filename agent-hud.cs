@@ -2075,10 +2075,11 @@ namespace AgentHud
         {
             try
             {
-                DateTime cut = DateTime.Now.AddDays(-1);
-                foreach (string dir in new string[] { DropDir(), RespDir() })
-                    foreach (string f in Directory.GetFiles(dir, "*.json"))
-                        if (File.GetLastWriteTime(f) < cut) File.Delete(f);
+                DateTime now = DateTime.Now;
+                foreach (string f in Directory.GetFiles(DropDir(), "*.json"))
+                    if (File.GetLastWriteTime(f) < now.AddMinutes(-10)) File.Delete(f);   // drop 残留 10 分钟清理
+                foreach (string f in Directory.GetFiles(RespDir(), "*.json"))
+                    if (File.GetLastWriteTime(f) < now.AddMinutes(-10)) File.Delete(f);   // resp 残留 10 分钟清理
             }
             catch { }
         }
@@ -2105,9 +2106,22 @@ namespace AgentHud
                 d["id"] = id; d["button"] = button; d["timeout"] = timeout;
                 string json = js.Serialize(d);
                 Directory.CreateDirectory(RespDir());
-                File.WriteAllText(Path.Combine(RespDir(), id + ".json"), json, Encoding.UTF8);
+                // 原子写：tmp + rename（DSH 侧 200ms 轮询可能读到半截文件）
+                string final = Path.Combine(RespDir(), id + ".json");
+                string tmp = final + "." + osPid + ".tmp";
+                File.WriteAllText(tmp, json, Encoding.UTF8);
+                File.Move(tmp, final, true);
             }
             catch { }
+        }
+
+        private static int osPid = System.Diagnostics.Process.GetCurrentProcess().Id;
+
+        /// drop 文件是否已被 DSH 侧删走（原生 UI 先裁决 → 对方收走了文件）
+        public static bool IsDropFileGone(string id)
+        {
+            try { return !File.Exists(Path.Combine(DropDir(), id + ".json")); }
+            catch { return false; }
         }
         public static string ReadResponse(string id, out bool timeout)
         {
@@ -2955,7 +2969,7 @@ namespace AgentHud
                 b.Close();
             };
             _bubbles.Add(nb);
-            // 确认超时：写超时响应并关闭
+            // 确认超时：写超时响应并关闭；同时轮询 drop 文件（被 DSH 原生收走则提前收摊）
             if (kind == "confirm")
             {
                 var nbRef = nb;
@@ -2970,6 +2984,18 @@ namespace AgentHud
                     }
                 };
                 toTimer.Start();
+                // drop 文件监视：每 500ms 检查请求文件是否还在（DSH 原生先裁决 → 对方删走）
+                var dropWatch = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+                dropWatch.Tick += delegate
+                {
+                    if (!nbRef.Visible || !_bubbles.Contains(nbRef)) { dropWatch.Stop(); return; }
+                    if (EventChannel.IsDropFileGone(nbRef.Id))
+                    {
+                        dropWatch.Stop();
+                        nbRef.Close();   // 对方已裁决，收摊气泡
+                    }
+                };
+                dropWatch.Start();
             }
             // 定位：方向自适应（贴左→右弹，贴右→左弹，悬浮→空间大的一侧）+ 手动设置兜底
             string dirSetting;
