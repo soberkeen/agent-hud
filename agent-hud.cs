@@ -49,8 +49,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Agent HUD：HDR 开关 + DeepSeek 余额 + GLM 订阅用量悬浮侧边栏")]
 [assembly: AssemblyCompany("Agent HUD Project")]
 [assembly: AssemblyCopyright("Copyright (C) 2026 Agent HUD Project")]
-[assembly: AssemblyVersion("2.9.7.0")]
-[assembly: AssemblyFileVersion("2.9.7.0")]
+[assembly: AssemblyVersion("2.9.8.0")]
+[assembly: AssemblyFileVersion("2.9.8.0")]
 
 namespace AgentHud
 {
@@ -434,6 +434,7 @@ namespace AgentHud
             d["blur_tint"] = "C8141E26";             // （仅旧系统生效）毛玻璃 Accent 色调
             d["bubble_dir"] = "auto";                // 气泡弹出方向：auto / right / left
             d["watch_toasts"] = "true";              // 接管 DSH/ZCode 的系统通知 → 角色气泡
+            d["voice_on"] = "true";                  // 气泡人声提示音（大肥鱼/狐狸娘）
             d["blur_veil"] = "30";                   // 毛玻璃蒙版浓度（十六进制 alpha，越小越透）
             d["ds_warn"] = "20";                     // DeepSeek 余额 <X 元 → 紧张
             d["ds_daze"] = "1";                      // DeepSeek 余额 ≤Y 元 → 痴呆
@@ -533,6 +534,7 @@ namespace AgentHud
             sb.AppendLine("bubble_dir=" + d["bubble_dir"]);
             sb.AppendLine("# 接管 DSH/ZCode 桌面端的系统通知 → 角色气泡（关掉后只剩 HUD 自身通道）");
             sb.AppendLine("watch_toasts=" + d["watch_toasts"]);
+            sb.AppendLine("voice_on=" + d["voice_on"]);
             sb.AppendLine("# DeepSeek 余额分档（元）：低于 ds_warn 紧张，低于等于 ds_daze 痴呆");
             sb.AppendLine("ds_warn=" + d["ds_warn"]);
             sb.AppendLine("ds_daze=" + d["ds_daze"]);
@@ -1465,7 +1467,7 @@ namespace AgentHud
         private readonly Widget _host;
         private readonly Dictionary<string, string> _cfg;
         private readonly Dictionary<string, string> _initialCfg;
-        private CheckBox _chkAutostart, _chkTray, _chkHover, _chkShowKey, _chkShowDs, _chkShowZc, _chkWatchToasts;
+        private CheckBox _chkAutostart, _chkTray, _chkHover, _chkShowKey, _chkShowDs, _chkShowZc, _chkWatchToasts, _chkVoice;
         private ComboBox _cmbRefresh, _cmbLow, _cmbMid, _cmbMoodSrc, _cmbFs, _cmbSkin, _cmbBlurTint, _cmbBubbleDir, _cmbDsWarn, _cmbDsDaze;
         private PasswordBox _pwdKey;
         private TextBox _txtKey, _txtDsBase, _txtZcBase, _txtLaunchZc, _txtLaunchDs;
@@ -1527,6 +1529,7 @@ namespace AgentHud
             pages.Children.Add(p0); _tabPages.Add(p0);
             AddTab(bar, "通用", 0);
             _chkWatchToasts = AddCheck(p0, "接管 DSH/ZCode 的系统通知（弹出角色气泡）", SettingsData.Flag(_cfg, "watch_toasts"));
+            _chkVoice = AddCheck(p0, "气泡弹出时播放人声提示音（大肥鱼/狐狸娘）", SettingsData.Flag(_cfg, "voice_on"));
             _chkAutostart = AddCheck(p0, "开机自动启动侧边栏", SettingsData.GetAutostart());
             _chkTray = AddCheck(p0, "显示托盘图标（右键托盘可打开设置）", SettingsData.Flag(_cfg, "show_tray"));
             _chkHover = AddCheck(p0, "悬停图标时弹出详情抽屉", SettingsData.Flag(_cfg, "hover_details"));
@@ -1671,7 +1674,7 @@ namespace AgentHud
             // 实时预览挂接：选择类控件一变就套用
             foreach (ComboBox cb in new ComboBox[] { _cmbRefresh, _cmbLow, _cmbMid, _cmbMoodSrc, _cmbFs, _cmbSkin, _cmbBlurTint, _cmbBubbleDir, _cmbDsWarn, _cmbDsDaze })
                 cb.SelectionChanged += delegate { LivePreview(); };
-            foreach (CheckBox ck in new CheckBox[] { _chkWatchToasts, _chkTray, _chkHover, _chkShowDs, _chkShowZc })
+            foreach (CheckBox ck in new CheckBox[] { _chkWatchToasts, _chkVoice, _chkTray, _chkHover, _chkShowDs, _chkShowZc })
                 ck.Click += delegate { LivePreview(); };
             _txtLaunchZc.TextChanged += delegate { LivePreview(); };
             _txtLaunchDs.TextChanged += delegate { LivePreview(); };
@@ -1896,6 +1899,7 @@ namespace AgentHud
             d["ds_daze"] = ComboValue(_cmbDsDaze, null);
             d["hover_details"] = _chkHover.IsChecked == true ? "true" : "false";
             d["show_tray"] = _chkTray.IsChecked == true ? "true" : "false";
+            d["voice_on"] = _chkVoice.IsChecked == true ? "true" : "false";
             d["show_ds"] = _chkShowDs.IsChecked == true ? "true" : "false";
             d["show_zc"] = _chkShowZc.IsChecked == true ? "true" : "false";
             d["launch_zcode"] = _txtLaunchZc.Text.Trim();
@@ -2118,6 +2122,63 @@ namespace AgentHud
         }
 
         private static int osPid = System.Diagnostics.Process.GetCurrentProcess().Id;
+
+        // ---------- 弹窗人声提示音（v2.9.8）：定稿素材内嵌（Voice.Fish/Fox.mp3），MediaPlayer 异步播不阻塞 -confirm 回传 ----------
+        internal static class VoiceCue
+        {
+            private static MediaPlayer _player;
+            private static string _fishPath, _foxPath;
+
+            // app=="dsh" → 大肥鱼「deep~deep~」；其余被接管气泡 → 狐狸娘「噶漏姆」
+            public static void Play(string app)
+            {
+                try
+                {
+                    string path;
+                    if (app == "dsh")
+                    {
+                        if (_fishPath == null) _fishPath = Extract("Voice.Fish.mp3");
+                        path = _fishPath;
+                    }
+                    else
+                    {
+                        if (_foxPath == null) _foxPath = Extract("Voice.Fox.mp3");
+                        path = _foxPath;
+                    }
+                    if (path == null) return;
+                    if (_player == null) _player = new MediaPlayer();
+                    _player.Stop(); _player.Close();   // 后到打断先到，防叠音
+                    _player.Open(new Uri(path, UriKind.Absolute));
+                    _player.Volume = 0.8;
+                    _player.Play();
+                }
+                catch { }
+            }
+
+            // MediaPlayer 只吃 URI：内嵌 mp3 首次解到 %LOCALAPPDATA%\AgentHUD\voice\，此后直接复用
+            private static string Extract(string resName)
+            {
+                try
+                {
+                    string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AgentHUD", "voice");
+                    Directory.CreateDirectory(dir);
+                    string path = Path.Combine(dir, resName);
+                    if (File.Exists(path)) return path;
+                    using (Stream s = Assembly.GetExecutingAssembly().GetManifestResourceStream(resName))
+                    {
+                        if (s == null) return null;
+                        using (FileStream f = new FileStream(path, FileMode.Create, FileAccess.Write))
+                        {
+                            byte[] buf = new byte[8192];
+                            int n;
+                            while ((n = s.Read(buf, 0, buf.Length)) > 0) f.Write(buf, 0, n);
+                        }
+                    }
+                    return path;
+                }
+                catch { return null; }
+            }
+        }
 
         /// drop 文件是否已被 DSH 侧删走（原生 UI 先裁决 → 对方收走了文件）
         public static bool IsDropFileGone(string id)
@@ -3111,6 +3172,8 @@ namespace AgentHud
             double edgeX = leftSide ? Left - 4 : Left + Width + 4;
             Dbg("bubble: id=" + id + " leftSide=" + leftSide + " edgeX=" + (int)edgeX + " top=" + (int)top);
             nb.OpenAt(edgeX, headY2, tailSide, top);
+            // v2.9.8：人声提示音——按角色分流（dsh→大肥鱼 / 其他→狐狸娘），异步不阻塞 -confirm 回传
+            try { if (SettingsData.Flag(_cfg, "voice_on")) EventChannel.VoiceCue.Play(app); } catch { }
         }
 
         private void DismissAllBubbles()
