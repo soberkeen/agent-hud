@@ -49,8 +49,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Agent HUD：HDR 开关 + DeepSeek 余额 + GLM 订阅用量悬浮侧边栏")]
 [assembly: AssemblyCompany("Agent HUD Project")]
 [assembly: AssemblyCopyright("Copyright (C) 2026 Agent HUD Project")]
-[assembly: AssemblyVersion("2.9.4.0")]
-[assembly: AssemblyFileVersion("2.9.4.0")]
+[assembly: AssemblyVersion("2.9.5.0")]
+[assembly: AssemblyFileVersion("2.9.5.0")]
 
 namespace AgentHud
 {
@@ -2263,7 +2263,9 @@ namespace AgentHud
 
         public void Close()
         {
-            _life.Stop();
+            // confirm 气泡没有 _life（超时由 ShowEventBubble 的 toTimer 统管）——
+            // 无守卫时点按钮/超时/drop 被收走三条收摊路径全部 NRE 闪退（v2.9.5 修复）
+            if (_life != null) _life.Stop();
             if (Popup.IsOpen) { Popup.IsOpen = false; if (Closed != null) Closed(this); }
         }
 
@@ -2939,9 +2941,13 @@ namespace AgentHud
                     // 防路径注入：id 只允许 32 位十六进制（本系统生成的 GUID-N 格式）；非本协议文件不动
                     string id = d.ContainsKey("id") ? (d["id"] + "") : null;
                     if (id == null || !System.Text.RegularExpressions.Regex.IsMatch(id, "^[0-9a-f]{32}$")) return null;
+                    // 残留再投递守卫：resp 已存在 = 该请求早已裁决（-confirm 已回传 / HUD 重启后启动扫描重捡）
+                    // → 不再弹（防鬼气泡），按垃圾清理
+                    try { if (File.Exists(Path.Combine(EventChannel.RespDir(), id + ".json"))) { File.Delete(path); return null; } }
+                    catch { }
                     lock (_seenEventIds)
                     {
-                        if (_seenEventIds.Contains(id)) { try { File.Delete(path); } catch { } return null; }   // 重复事件：清掉同名残留
+                        if (_seenEventIds.Contains(id)) return null;   // 重复事件（Changed 重放）：confirm 文件必须存活（见下），一律不删
                         _seenEventIds.Add(id);
                         if (_seenEventIds.Count > 1024) _seenEventIds.Clear();
                     }
@@ -2967,7 +2973,10 @@ namespace AgentHud
                         double t;
                         if (double.TryParse(d["timeout"] + "", out t) && t > 0) timeoutSec = (int)t;
                     }
-                    try { File.Delete(path); } catch { }   // 解析成功才删（此时才算消费）
+                    // 解析成功才算消费。confirm 文件不删：dropWatch 靠「文件被对方收走」识别原生先裁决
+                    // （HANDOFF-DSH §3.4）——自己删了信号就没了，且首个 tick 会立刻误关气泡；
+                    // 文件由 DSH 侧 cleanupRequest / resp 守卫 / 10 分钟兜底清理收尾。notify 等其他 kind 照旧即删。
+                    if (kind != "confirm") { try { File.Delete(path); } catch { } }
                     Dbg("consume drop id=" + id + " app=" + app + " kind=" + kind + " try=" + i);
                     return new DropReq { Id = id, App = app, Kind = kind, Title = title, Body = body, Buttons = buttons, TimeoutSec = timeoutSec };
                 }
