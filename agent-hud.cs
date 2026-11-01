@@ -2110,7 +2110,8 @@ namespace AgentHud
                 string final = Path.Combine(RespDir(), id + ".json");
                 string tmp = final + "." + osPid + ".tmp";
                 File.WriteAllText(tmp, json, Encoding.UTF8);
-                File.Move(tmp, final, true);
+                if (File.Exists(final)) File.Delete(final);
+                File.Move(tmp, final);
             }
             catch { }
         }
