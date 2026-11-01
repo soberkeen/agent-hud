@@ -49,8 +49,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Agent HUD：HDR 开关 + DeepSeek 余额 + GLM 订阅用量悬浮侧边栏")]
 [assembly: AssemblyCompany("Agent HUD Project")]
 [assembly: AssemblyCopyright("Copyright (C) 2026 Agent HUD Project")]
-[assembly: AssemblyVersion("2.9.5.0")]
-[assembly: AssemblyFileVersion("2.9.5.0")]
+[assembly: AssemblyVersion("2.9.6.0")]
+[assembly: AssemblyFileVersion("2.9.6.0")]
 
 namespace AgentHud
 {
@@ -2639,8 +2639,9 @@ namespace AgentHud
                     _tuckTimer.Stop();
                     if (_tucked) SetDockState(_dock, false, true);   // 悬停弹出
                 }
-                double mins = SettingsData.Num(_cfg, "refresh_minutes", 5);
-                if (!MockCycle && (DateTime.Now - _lastFetch).TotalMinutes >= mins) RefreshData();   // 弹出时顺带补数据
+                // 悬停展开必刷新（30 秒冷却防抖，防频繁悬停打爆 API）：主动查看时总是刚拉的数据；
+                // 后台 _dataTimer 仍按 refresh_minutes 轮询兜底（RefreshData 同步推 _lastFetch，冷却天然生效）
+                if (!MockCycle && (DateTime.Now - _lastFetch).TotalSeconds >= 30) RefreshData();
             };
             MouseLeave += delegate
             {
