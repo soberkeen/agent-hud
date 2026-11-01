@@ -49,8 +49,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Agent HUD：HDR 开关 + DeepSeek 余额 + GLM 订阅用量悬浮侧边栏")]
 [assembly: AssemblyCompany("Agent HUD Project")]
 [assembly: AssemblyCopyright("Copyright (C) 2026 Agent HUD Project")]
-[assembly: AssemblyVersion("2.9.8.0")]
-[assembly: AssemblyFileVersion("2.9.8.0")]
+[assembly: AssemblyVersion("2.9.9.0")]
+[assembly: AssemblyFileVersion("2.9.9.0")]
 
 namespace AgentHud
 {
@@ -2124,35 +2124,65 @@ namespace AgentHud
         private static int osPid = System.Diagnostics.Process.GetCurrentProcess().Id;
 
         // ---------- 弹窗人声提示音（v2.9.8）：定稿素材内嵌（Voice.Fish/Fox.mp3），MediaPlayer 异步播不阻塞 -confirm 回传 ----------
+        // v2.9.9：双角色同弹改顺序队列——各播各的（后到排队，不再互掐）；同角色连弹去重只出一声
         internal static class VoiceCue
         {
             private static MediaPlayer _player;
             private static string _fishPath, _foxPath;
+            private static readonly Queue<string> _queue = new Queue<string>();
+            private static DispatcherTimer _pump;
+            private static DateTime _busyUntil;
+            private const int FishMs = 2000, FoxMs = 850, GapMs = 150;   // 实长 1.87s / 0.62s + 余量
 
             // app=="dsh" → 大肥鱼「deep~deep~」；其余被接管气泡 → 狐狸娘「噶漏姆」
             public static void Play(string app)
             {
                 try
                 {
-                    string path;
-                    if (app == "dsh")
+                    string want = app == "dsh" ? "fish" : "fox";
+                    if (_queue.Contains(want)) return;   // 同角色已在队列：连弹只出一声
+                    _queue.Enqueue(want);
+                    while (_queue.Count > 3) _queue.Dequeue();   // 爆量丢最旧，保最新
+                    if (_pump == null)
+                    {
+                        _pump = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+                        _pump.Tick += delegate { Pump(); };
+                        _pump.Start();
+                    }
+                }
+                catch { }
+            }
+
+            private static void Pump()
+            {
+                try
+                {
+                    if (_queue.Count == 0 || DateTime.Now < _busyUntil) return;
+                    string which = _queue.Dequeue();
+                    if (which == "fish")
                     {
                         if (_fishPath == null) _fishPath = Extract("Voice.Fish.mp3");
-                        path = _fishPath;
+                        if (_fishPath == null) return;
+                        Start(_fishPath, FishMs);
                     }
                     else
                     {
                         if (_foxPath == null) _foxPath = Extract("Voice.Fox.mp3");
-                        path = _foxPath;
+                        if (_foxPath == null) return;
+                        Start(_foxPath, FoxMs);
                     }
-                    if (path == null) return;
-                    if (_player == null) _player = new MediaPlayer();
-                    _player.Stop(); _player.Close();   // 后到打断先到，防叠音
-                    _player.Open(new Uri(path, UriKind.Absolute));
-                    _player.Volume = 0.8;
-                    _player.Play();
                 }
                 catch { }
+            }
+
+            private static void Start(string path, int clipMs)
+            {
+                if (_player == null) _player = new MediaPlayer();
+                _player.Stop(); _player.Close();
+                _player.Open(new Uri(path, UriKind.Absolute));
+                _player.Volume = 0.8;
+                _player.Play();
+                _busyUntil = DateTime.Now.AddMilliseconds(clipMs + GapMs);
             }
 
             // MediaPlayer 只吃 URI：内嵌 mp3 首次解到 %LOCALAPPDATA%\AgentHUD\voice\，此后直接复用
