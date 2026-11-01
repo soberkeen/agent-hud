@@ -49,8 +49,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Agent HUD：HDR 开关 + DeepSeek 余额 + GLM 订阅用量悬浮侧边栏")]
 [assembly: AssemblyCompany("Agent HUD Project")]
 [assembly: AssemblyCopyright("Copyright (C) 2026 Agent HUD Project")]
-[assembly: AssemblyVersion("2.9.9.0")]
-[assembly: AssemblyFileVersion("2.9.9.0")]
+[assembly: AssemblyVersion("2.9.10.0")]
+[assembly: AssemblyFileVersion("2.9.10.0")]
 
 namespace AgentHud
 {
@@ -435,6 +435,7 @@ namespace AgentHud
             d["bubble_dir"] = "auto";                // 气泡弹出方向：auto / right / left
             d["watch_toasts"] = "true";              // 接管 DSH/ZCode 的系统通知 → 角色气泡
             d["voice_on"] = "true";                  // 气泡人声提示音（大肥鱼/狐狸娘）
+            d["voice_volume"] = "80";                // 人声音量 0-100
             d["blur_veil"] = "30";                   // 毛玻璃蒙版浓度（十六进制 alpha，越小越透）
             d["ds_warn"] = "20";                     // DeepSeek 余额 <X 元 → 紧张
             d["ds_daze"] = "1";                      // DeepSeek 余额 ≤Y 元 → 痴呆
@@ -535,6 +536,7 @@ namespace AgentHud
             sb.AppendLine("# 接管 DSH/ZCode 桌面端的系统通知 → 角色气泡（关掉后只剩 HUD 自身通道）");
             sb.AppendLine("watch_toasts=" + d["watch_toasts"]);
             sb.AppendLine("voice_on=" + d["voice_on"]);
+            sb.AppendLine("voice_volume=" + d["voice_volume"]);
             sb.AppendLine("# DeepSeek 余额分档（元）：低于 ds_warn 紧张，低于等于 ds_daze 痴呆");
             sb.AppendLine("ds_warn=" + d["ds_warn"]);
             sb.AppendLine("ds_daze=" + d["ds_daze"]);
@@ -1468,6 +1470,7 @@ namespace AgentHud
         private readonly Dictionary<string, string> _cfg;
         private readonly Dictionary<string, string> _initialCfg;
         private CheckBox _chkAutostart, _chkTray, _chkHover, _chkShowKey, _chkShowDs, _chkShowZc, _chkWatchToasts, _chkVoice;
+        private Slider _sldVoice;
         private ComboBox _cmbRefresh, _cmbLow, _cmbMid, _cmbMoodSrc, _cmbFs, _cmbSkin, _cmbBlurTint, _cmbBubbleDir, _cmbDsWarn, _cmbDsDaze;
         private PasswordBox _pwdKey;
         private TextBox _txtKey, _txtDsBase, _txtZcBase, _txtLaunchZc, _txtLaunchDs;
@@ -1530,6 +1533,8 @@ namespace AgentHud
             AddTab(bar, "通用", 0);
             _chkWatchToasts = AddCheck(p0, "接管 DSH/ZCode 的系统通知（弹出角色气泡）", SettingsData.Flag(_cfg, "watch_toasts"));
             _chkVoice = AddCheck(p0, "气泡弹出时播放人声提示音（大肥鱼/狐狸娘）", SettingsData.Flag(_cfg, "voice_on"));
+            _sldVoice = AddSlider(p0, "提示音音量", 0, 100, SettingsData.Num(_cfg, "voice_volume", 80));
+            _sldVoice.ValueChanged += delegate { LivePreview(); };
             _chkAutostart = AddCheck(p0, "开机自动启动侧边栏", SettingsData.GetAutostart());
             _chkTray = AddCheck(p0, "显示托盘图标（右键托盘可打开设置）", SettingsData.Flag(_cfg, "show_tray"));
             _chkHover = AddCheck(p0, "悬停图标时弹出详情抽屉", SettingsData.Flag(_cfg, "hover_details"));
@@ -1816,6 +1821,39 @@ namespace AgentHud
             return AddCombo(sp, label, options, current, null);
         }
 
+        // v2.9.10：滑条（右侧随动数值）
+        private Slider AddSlider(StackPanel sp, string label, double min, double max, double current)
+        {
+            AddLabel(sp, label);
+            DockPanel row = new DockPanel { LastChildFill = true };
+            TextBlock val = new TextBlock
+            {
+                Text = ((int)current).ToString(),
+                FontSize = 12,
+                Foreground = Ui.Brush(0xEE, 0xFF, 0xFF, 0xFF),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(8, 0, 0, 0),
+            };
+            Slider s = new Slider
+            {
+                Minimum = min,
+                Maximum = max,
+                Value = current,
+                IsSnapToTickEnabled = true,
+                TickFrequency = 5,
+                Width = 200,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Center,
+                Cursor = Cursors.Hand,
+            };
+            s.ValueChanged += delegate { val.Text = ((int)s.Value).ToString(); };
+            DockPanel.SetDock(val, Dock.Right);
+            row.Children.Add(val);
+            row.Children.Add(s);
+            sp.Children.Add(row);
+            return s;
+        }
+
         private TextBox AddText(StackPanel sp, string label, string current)
         {
             AddLabel(sp, label);
@@ -1900,6 +1938,7 @@ namespace AgentHud
             d["hover_details"] = _chkHover.IsChecked == true ? "true" : "false";
             d["show_tray"] = _chkTray.IsChecked == true ? "true" : "false";
             d["voice_on"] = _chkVoice.IsChecked == true ? "true" : "false";
+            d["voice_volume"] = ((int)_sldVoice.Value).ToString();
             d["show_ds"] = _chkShowDs.IsChecked == true ? "true" : "false";
             d["show_zc"] = _chkShowZc.IsChecked == true ? "true" : "false";
             d["launch_zcode"] = _txtLaunchZc.Text.Trim();
@@ -2128,6 +2167,7 @@ namespace AgentHud
         internal static class VoiceCue
         {
             private static MediaPlayer _player;
+            public static double VolumePercent = 80;   // 设置页滑条即时写入（ApplyPreview/启动）
             private static string _fishPath, _foxPath;
             private static readonly Queue<string> _queue = new Queue<string>();
             private static DispatcherTimer _pump;
@@ -2180,7 +2220,7 @@ namespace AgentHud
                 if (_player == null) _player = new MediaPlayer();
                 _player.Stop(); _player.Close();
                 _player.Open(new Uri(path, UriKind.Absolute));
-                _player.Volume = 0.8;
+                _player.Volume = Math.Max(0, Math.Min(1, VolumePercent / 100.0));
                 _player.Play();
                 _busyUntil = DateTime.Now.AddMilliseconds(clipMs + GapMs);
             }
@@ -2499,6 +2539,7 @@ namespace AgentHud
             ShowActivated = false;
 
             _cfg = SettingsData.Load();
+            EventChannel.VoiceCue.VolumePercent = SettingsData.Num(_cfg, "voice_volume", 80);   // 启动即按 ini 音量播
             _panel = new Border
             {
                 CornerRadius = new CornerRadius(16),
@@ -3313,6 +3354,7 @@ namespace AgentHud
         public void ApplyPreview(Dictionary<string, string> d)
         {
             _cfg = new Dictionary<string, string>(d);
+            EventChannel.VoiceCue.VolumePercent = SettingsData.Num(_cfg, "voice_volume", 80);   // 音量滑条即时生效
             ApplySkin(_cfg);
             bool showTray = SettingsData.Flag(_cfg, "show_tray");
             if (_tray != null) _tray.Visible = showTray;
