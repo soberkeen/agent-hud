@@ -973,13 +973,47 @@ def build_audio():
     print('audio ok, peak=%.3f' % peak)
 
 # ---------------------------------------------------------------- 主流程
+def low_priority():
+    """渲染全程 IDLE 优先级,不抢前台(抢购脚本/游戏)的 CPU"""
+    if sys.platform != 'win32':
+        return
+    import ctypes
+    k = ctypes.windll.kernel32
+    k.GetCurrentProcess.restype = ctypes.c_void_p  # 伪句柄必须按 64 位指针传
+    h = k.GetCurrentProcess()
+    if not k.SetPriorityClass(ctypes.c_void_p(h), 0x00000040):  # IDLE_PRIORITY_CLASS
+        print('warn: SetPriorityClass failed, running at normal priority', flush=True)
+    else:
+        print('priority: idle (0x40)', flush=True)
+
+def probe_encoder(args):
+    """0.2s 试编码一次,验证硬件编码器真实可用(列表里有不代表能用)"""
+    try:
+        r = subprocess.run(
+            ['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'color=black:s=256x256:d=0.2']
+            + args + ['-f', 'null', '-'],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+def pick_video_codec():
+    if probe_encoder(['-c:v', 'h264_nvenc']):
+        # NVENC: quality 对齐 x264 crf18 档
+        return ['-c:v', 'h264_nvenc', '-preset', 'p5', '-tune', 'hq',
+                '-rc', 'vbr', '-cq', '19', '-b:v', '0',
+                '-spatial-aq', '1', '-profile:v', 'high']
+    print('nvenc unavailable, fallback libx264 (limited threads)', flush=True)
+    n = max(2, (os.cpu_count() or 8) // 2)
+    return ['-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-threads', str(n)]
+
 def render_video(out):
     os.makedirs(os.path.dirname(out), exist_ok=True)
     cmd = ['ffmpeg', '-v', 'error', '-y',
            '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', '%dx%d' % (W, H),
            '-r', str(FPS), '-i', '-',
-           '-c:v', 'libx264', '-preset', 'medium', '-crf', '18',
-           '-pix_fmt', 'yuv420p', '-movflags', '+faststart', out]
+           '-pix_fmt', 'yuv420p', '-movflags', '+faststart'] \
+          + pick_video_codec() + [out]
     p = subprocess.Popen(cmd, stdin=subprocess.PIPE)
     for i in range(N_FRAMES):
         p.stdin.write(render_frame(i).tobytes())
@@ -1001,6 +1035,7 @@ def mux():
 
 def main():
     os.makedirs(BUILD, exist_ok=True)
+    low_priority()
     build_bg(); build_hud_sprites(); build_cursor(); load_gifs()
     what = sys.argv[1] if len(sys.argv) > 1 else 'all'
     if what == 'frame':
