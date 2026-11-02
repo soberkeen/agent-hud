@@ -49,8 +49,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Agent HUD：HDR 开关 + DeepSeek 余额 + GLM 订阅用量悬浮侧边栏")]
 [assembly: AssemblyCompany("Agent HUD Project")]
 [assembly: AssemblyCopyright("Copyright (C) 2026 Agent HUD Project")]
-[assembly: AssemblyVersion("2.9.16.0")]
-[assembly: AssemblyFileVersion("2.9.16.0")]
+[assembly: AssemblyVersion("2.9.18.0")]
+[assembly: AssemblyFileVersion("2.9.18.0")]
 
 namespace AgentHud
 {
@@ -1510,12 +1510,18 @@ namespace AgentHud
             _cfg = host.CurrentConfig;
             _initialCfg = new Dictionary<string, string>(_cfg);
             Title = "Agent HUD · 设置";
-            Width = 480; Height = 470;
+            Width = 560; Height = 580;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             ResizeMode = ResizeMode.NoResize;
             Topmost = true;                    // 侧边栏本身 topmost，设置页跟它平级才不会被盖住
-            Background = Ui.Brush(0xFF, 0x1A, 0x1A, 0x1A);
+            Background = Ui.Brush(0xFF, 0x1A, 0x1C, 0x20);
             Icon = TryIcon();
+            UseLayoutRounding = true;          // v2.9.18：像素对齐，小字号高 DPI 不发虚
+            SnapsToDevicePixels = true;
+            SourceInitialized += delegate
+            {
+                try { DwmBackdrop.Apply(new System.Windows.Interop.WindowInteropHelper(this).Handle, false, true); } catch { }
+            };
 
             Grid root = new Grid { Margin = new Thickness(12) };
             RowDefinition r0 = new RowDefinition(); r0.Height = GridLength.Auto;
@@ -1534,9 +1540,9 @@ namespace AgentHud
             // ---- 页签内容区 ----
             Border contentBox = new Border
             {
-                CornerRadius = new CornerRadius(0, 10, 10, 10),
-                Background = Ui.Brush(0xFF, 0x22, 0x22, 0x22),
-                BorderBrush = Ui.Brush(0x22, 0xFF, 0xFF, 0xFF),
+                CornerRadius = new CornerRadius(10),
+                Background = Ui.Brush(0xFF, 0x1E, 0x20, 0x26),
+                BorderBrush = Ui.Brush(0x24, 0xFF, 0xFF, 0xFF),
                 BorderThickness = new Thickness(1),
                 ClipToBounds = true,
             };
@@ -1556,56 +1562,63 @@ namespace AgentHud
             StackPanel p0 = new StackPanel { Margin = new Thickness(12), Visibility = Visibility.Visible };
             pages.Children.Add(p0); _tabPages.Add(p0);
             AddTab(bar, "通用", 0);
-            _chkWatchToasts = AddCheck(p0, "接管 DSH/ZCode 的系统通知（弹出角色气泡）", SettingsData.Flag(_cfg, "watch_toasts"));
-            _chkVoice = AddCheck(p0, "气泡弹出时播放人声提示音（大肥鱼/狐狸娘）", SettingsData.Flag(_cfg, "voice_on"));
-            _sldVoice = AddSlider(p0, "提示音音量", 0, 100, SettingsData.Num(_cfg, "voice_volume", 80));
+            // v2.9.18 卡片式分组：每卡一个主题，行=左标签右控件
+            StackPanel cBubble = AddCard(p0, "气泡与提示音");
+            _chkWatchToasts = AddSwitch(cBubble, "接管 DSH/ZCode 系统通知", SettingsData.Flag(_cfg, "watch_toasts"));
+            _chkVoice = AddSwitch(cBubble, "气泡人声提示音（大肥鱼/狐狸娘）", SettingsData.Flag(_cfg, "voice_on"));
+            _sldVoice = AddSlider(cBubble, "提示音音量", 0, 100, SettingsData.Num(_cfg, "voice_volume", 80));
             _sldVoice.ValueChanged += delegate { LivePreview(); };
-            _chkAutostart = AddCheck(p0, "开机自动启动侧边栏", SettingsData.GetAutostart());
-            _chkTray = AddCheck(p0, "显示托盘图标（右键托盘可打开设置）", SettingsData.Flag(_cfg, "show_tray"));
-            _chkHover = AddCheck(p0, "悬停图标时弹出详情抽屉", SettingsData.Flag(_cfg, "hover_details"));
-            AddTitle(p0, "GLM 角色与额度分档");
-            _chkShowDs = AddCheck(p0, "显示 DeepSeek 角色（大肥鱼，余额）", SettingsData.Flag(_cfg, "show_ds"));
-            _chkShowZc = AddCheck(p0, "显示 GLM 角色（订阅额度）", SettingsData.Flag(_cfg, "show_zc"));
-            _cmbMoodSrc = AddCombo(p0, "GLM 表情由哪个额度驱动", new string[] { "five", "week", "worst" }, _cfg["zc_mood_source"]);
-            AddTitle(p0, "面板材质");
-            _cmbSkin = AddCombo(p0, "皮肤", new string[] { "黑色毛玻璃", "白色毛玻璃", "macOS Dock" }, SkinLabel(_cfg["skin"]));
-            _cmbBlurTint = AddCombo(p0, "毛玻璃蒙版浓度", new string[] { "清透", "标准", "深邃" }, VeilLabel(_cfg["blur_veil"]));
-            _cmbBubbleDir = AddCombo(p0, "气泡弹出方向", new string[] { "自动", "永远向右", "永远向左" }, DirLabel(_cfg["bubble_dir"]));
-            AddTitle(p0, "前台全屏程序（游戏/全屏视频）运行时");
-            _cmbFs = AddCombo(p0, "全屏时行为", new string[] { "自动隐藏", "缩边显示", "保持显示" }, FsLabel(_cfg["fullscreen_action"]));
-            _cmbDock = AddCombo(p0, "贴边行为", new string[] { "吸附隐藏", "仅吸附" }, DockActLabel(_cfg["dock_action"]));
-            _cmbOrient = AddCombo(p0, "布局方向", new string[] { "竖向", "横向", "自动跟随贴边" }, OrientLabel(_cfg["orientation"]));
-            AddHint(p0, "five=5小时额度（推荐） / week=本周 / worst=两者取更差");
-            AddThresholds(p0, _cfg["warn_low"], _cfg["warn_mid"]);
-            AddTitle(p0, "双击角色启动程序");
-            _txtLaunchZc = AddText(p0, "双击 GLM 角色启动（留空=不启动）", _cfg["launch_zcode"]);
-            _txtLaunchDs = AddText(p0, "双击 DeepSeek 角色启动（留空=不启动）", _cfg["launch_dsh"]);
-            AddTitle(p0, "DeepSeek 余额分档");
-            _cmbDsWarn = AddCombo(p0, "「紧张」阈值（余额低于此元数）", new string[] { "10", "20", "30", "50" }, _cfg["ds_warn"]);
-            _cmbDsDaze = AddCombo(p0, "「痴呆」阈值（余额低于等于此元数）", new string[] { "0.5", "1", "2", "5" }, _cfg["ds_daze"]);
+
+            StackPanel cRole = AddCard(p0, "角色与额度");
+            _chkShowDs = AddSwitch(cRole, "显示 DeepSeek 角色（大肥鱼）", SettingsData.Flag(_cfg, "show_ds"));
+            _chkShowZc = AddSwitch(cRole, "显示 GLM 角色（订阅额度）", SettingsData.Flag(_cfg, "show_zc"));
+            _cmbMoodSrc = AddCombo(cRole, "GLM 表情驱动", new string[] { "five", "week", "worst" }, _cfg["zc_mood_source"], null, "five=5小时额度（推荐） / week=本周 / worst=取更差");
+            AddThresholds(cRole, _cfg["warn_low"], _cfg["warn_mid"]);
+            _cmbDsWarn = AddCombo(cRole, "DeepSeek「紧张」阈值", new string[] { "10", "20", "30", "50" }, _cfg["ds_warn"], null, "余额低于此元数时角色变紧张");
+            _cmbDsDaze = AddCombo(cRole, "DeepSeek「痴呆」阈值", new string[] { "0.5", "1", "2", "5" }, _cfg["ds_daze"], null, "余额低于等于此元数时角色变痴呆");
+
+            StackPanel cLook = AddCard(p0, "外观");
+            _cmbSkin = AddCombo(cLook, "皮肤", new string[] { "黑色毛玻璃", "白色毛玻璃", "macOS Dock" }, SkinLabel(_cfg["skin"]), null, null);
+            _cmbBlurTint = AddCombo(cLook, "毛玻璃蒙版浓度", new string[] { "清透", "标准", "深邃" }, VeilLabel(_cfg["blur_veil"]), null, null);
+            _cmbBubbleDir = AddCombo(cLook, "气泡弹出方向", new string[] { "自动", "永远向右", "永远向左" }, DirLabel(_cfg["bubble_dir"]), null, null);
+
+            StackPanel cWin = AddCard(p0, "窗口行为");
+            _cmbFs = AddCombo(cWin, "全屏时行为", new string[] { "自动隐藏", "缩边显示", "保持显示" }, FsLabel(_cfg["fullscreen_action"]), null, "前台有游戏/全屏视频时");
+            _cmbDock = AddCombo(cWin, "贴边行为", new string[] { "吸附隐藏", "仅吸附" }, DockActLabel(_cfg["dock_action"]), null, "吸附隐藏=露 12px 边条；仅吸附=贴边保持完整显示");
+            _cmbOrient = AddCombo(cWin, "布局方向", new string[] { "竖向", "横向", "自动跟随贴边" }, OrientLabel(_cfg["orientation"]), null, "自动：贴上下边缘横排、贴左右竖排");
+            _chkHover = AddSwitch(cWin, "悬停图标弹出详情抽屉", SettingsData.Flag(_cfg, "hover_details"));
+
+            StackPanel cLaunch = AddCard(p0, "启动与快捷");
+            _chkAutostart = AddSwitch(cLaunch, "开机自动启动侧边栏", SettingsData.GetAutostart());
+            _chkTray = AddSwitch(cLaunch, "显示托盘图标（右键托盘可开设置）", SettingsData.Flag(_cfg, "show_tray"));
+            _txtLaunchZc = AddText(cLaunch, "双击 GLM 角色启动", _cfg["launch_zcode"], "程序路径，留空=不启动");
+            _txtLaunchDs = AddText(cLaunch, "双击 DeepSeek 角色启动", _cfg["launch_dsh"], "程序路径，留空=不启动");
 
             // ===== 页签 1：数据源 =====
             StackPanel p1 = new StackPanel { Margin = new Thickness(12), Visibility = Visibility.Collapsed };
             pages.Children.Add(p1); _tabPages.Add(p1);
             AddTab(bar, "数据源", 1);
 
-            AddLabel(p1, "DeepSeek API Key（platform.deepseek.com 创建）");
-            StackPanel keyRow = new StackPanel { Orientation = Orientation.Horizontal };
-            _pwdKey = new PasswordBox { Width = 250, FontSize = 12, Background = FieldBrush(), Foreground = Brushes.White, BorderBrush = Ui.Brush(0x44, 0xFF, 0xFF, 0xFF), Padding = new Thickness(6, 4, 6, 4) };
+            // v2.9.18 数据源卡片化
+            StackPanel cDs = AddCard(p1, "DeepSeek");
+            _pwdKey = new PasswordBox { FontSize = 12.5, Background = FieldBrush(), Foreground = Brushes.White, BorderBrush = Ui.Brush(0x44, 0xFF, 0xFF, 0xFF), Padding = new Thickness(6, 5, 6, 5) };
             _pwdKey.Password = _cfg["deepseek_key"];
-            _txtKey = new TextBox { Width = 250, FontSize = 12, Visibility = Visibility.Collapsed, Background = FieldBrush(), Foreground = Brushes.White, BorderBrush = Ui.Brush(0x44, 0xFF, 0xFF, 0xFF), Padding = new Thickness(6, 4, 6, 4) };
+            _txtKey = new TextBox { FontSize = 12.5, Visibility = Visibility.Collapsed, Background = FieldBrush(), Foreground = Brushes.White, BorderBrush = Ui.Brush(0x44, 0xFF, 0xFF, 0xFF), Padding = new Thickness(6, 5, 6, 5) };
             _txtKey.Text = _cfg["deepseek_key"];
-            keyRow.Children.Add(_pwdKey);
-            keyRow.Children.Add(_txtKey);
+            Grid keyHost = new Grid();
+            keyHost.Children.Add(_pwdKey);
+            keyHost.Children.Add(_txtKey);   // 叠放，互斥切换可见性
             _chkShowKey = new CheckBox { Content = "显示", FontSize = 12, Foreground = Ui.Brush(0xCC, 0xFF, 0xFF, 0xFF), Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
             _chkShowKey.Click += delegate
             {
                 if (_chkShowKey.IsChecked == true) { _txtKey.Text = _pwdKey.Password; _txtKey.Visibility = Visibility.Visible; _pwdKey.Visibility = Visibility.Collapsed; }
                 else { _pwdKey.Password = _txtKey.Text; _pwdKey.Visibility = Visibility.Visible; _txtKey.Visibility = Visibility.Collapsed; }
             };
-            keyRow.Children.Add(_chkShowKey);
-            p1.Children.Add(keyRow);
-            StackPanel dsTestRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+            DockPanel keyDock = new DockPanel { LastChildFill = true };
+            DockPanel.SetDock(_chkShowKey, Dock.Right);
+            keyDock.Children.Add(_chkShowKey);
+            keyDock.Children.Add(keyHost);
+            AddRow(cDs, "API Key", keyDock, "platform.deepseek.com 创建");
             Button btnDs = DarkButton("测试连接", delegate
             {
                 string key = (_chkShowKey.IsChecked == true ? _txtKey.Text : _pwdKey.Password).Trim();
@@ -1620,19 +1633,16 @@ namespace AgentHud
                     });
                 });
             });
-            dsTestRow.Children.Add(btnDs);
-            p1.Children.Add(dsTestRow);
-            _txtDsBase = AddText(p1, "接口地址（默认 https://api.deepseek.com）", _cfg["deepseek_base"]);
+            AddRow(cDs, "连接测试", btnDs, null);
+            _txtDsBase = AddText(cDs, "接口地址", _cfg["deepseek_base"], "默认 https://api.deepseek.com");
 
-            AddLabel(p1, "ZCode 接口地址（留空=自动跟随本机 ZCode 登录）");
-            StackPanel zcRow = new StackPanel { Orientation = Orientation.Horizontal };
+            StackPanel cZc = AddCard(p1, "ZCode");
             _txtZcBase = new TextBox
             {
-                Width = 250, FontSize = 12, Background = FieldBrush(), Foreground = Brushes.White,
-                BorderBrush = Ui.Brush(0x44, 0xFF, 0xFF, 0xFF), Padding = new Thickness(6, 4, 6, 4),
-                Text = _cfg["zcode_base"], HorizontalAlignment = HorizontalAlignment.Left,
+                FontSize = 12.5, Background = FieldBrush(), Foreground = Brushes.White,
+                BorderBrush = Ui.Brush(0x44, 0xFF, 0xFF, 0xFF), Padding = new Thickness(6, 5, 6, 5),
+                Text = _cfg["zcode_base"],
             };
-            zcRow.Children.Add(_txtZcBase);
             Button btnZc = DarkButton("测试连接", delegate
             {
                 _testResult.Text = "ZCode: 查询中…";
@@ -1650,26 +1660,40 @@ namespace AgentHud
                 });
             });
             btnZc.Margin = new Thickness(8, 0, 0, 0);
-            zcRow.Children.Add(btnZc);
-            p1.Children.Add(zcRow);
+            DockPanel zcDock = new DockPanel { LastChildFill = true };
+            DockPanel.SetDock(btnZc, Dock.Right);
+            zcDock.Children.Add(btnZc);
+            zcDock.Children.Add(_txtZcBase);
+            AddRow(cZc, "接口地址", zcDock, "留空=自动跟随本机 ZCode 登录");
 
-            _cmbRefresh = AddCombo(p1, "数据刷新间隔（余额与额度）", new string[] { "1", "2", "5", "10", "15", "30" }, _cfg["refresh_minutes"], " 分钟");
+            StackPanel cCommon = AddCard(p1, "通用");
+            _cmbRefresh = AddCombo(cCommon, "数据刷新间隔", new string[] { "1", "2", "5", "10", "15", "30" }, _cfg["refresh_minutes"], " 分钟", "余额与额度的后台轮询周期");
 
             // ===== 页签 2：关于 =====
             StackPanel p2 = new StackPanel { Margin = new Thickness(12), Visibility = Visibility.Collapsed };
             pages.Children.Add(p2); _tabPages.Add(p2);
             AddTab(bar, "关于", 2);
+            // v2.9.18 关于卡片化 + 版本号从程序集读（原写死 v2.3 已脱节）
+            StackPanel cAbout = AddCard(p2, "关于");
+            Version vAsm = Assembly.GetExecutingAssembly().GetName().Version;
             TextBlock about = new TextBlock
             {
-                FontSize = 12,
-                Foreground = Ui.Brush(0x99, 0xFF, 0xFF, 0xFF),
-                Text = "Agent HUD v2.3 · HDR 开关 + DeepSeek 余额 + GLM 订阅用量",
+                FontSize = 12.5,
+                Foreground = Ui.Brush(0xC8, 0xFF, 0xFF, 0xFF),
+                Text = "Agent HUD v" + vAsm.Major + "." + vAsm.Minor + "." + vAsm.Build,
             };
-            p2.Children.Add(about);
+            cAbout.Children.Add(about);
+            cAbout.Children.Add(new TextBlock
+            {
+                FontSize = 11,
+                Foreground = Ui.Brush(0x70, 0xFF, 0xFF, 0xFF),
+                Text = "HDR 开关 · DeepSeek 余额 · GLM 订阅额度 · 气泡与人声提示",
+                Margin = new Thickness(0, 2, 0, 0),
+            });
             Button repo = DarkButton("GitHub 仓库", delegate { Ui.OpenUrl("https://github.com/soberkeen/agent-hud"); });
             repo.HorizontalAlignment = HorizontalAlignment.Left;
             repo.Margin = new Thickness(0, 8, 0, 0);
-            p2.Children.Add(repo);
+            cAbout.Children.Add(repo);
 
             // ---- 测试结果（常驻底部） ----
             _testResult = new TextBlock
@@ -1688,8 +1712,10 @@ namespace AgentHud
             StackPanel btns = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
             Grid.SetRow(btns, 3);
             Button save = DarkButton("保存", delegate { SaveAndClose(); });
-            save.Background = Ui.Brush(0xFF, 0x17, 0x7B, 0x4D);
-            save.BorderBrush = Ui.Brush(0xFF, 0x22, 0x99, 0x66);
+            save.Background = Ui.Brush(0xFF, 0x1F, 0x9D, 0x63);
+            save.BorderBrush = Ui.Brush(0xFF, 0x25, 0xB5, 0x74);
+            save.MinWidth = 96;
+            save.FontWeight = FontWeights.SemiBold;
             Button cancel = DarkButton("取消", delegate { _saved = true; _host.ApplyPreview(_initialCfg); Close(); });
             cancel.Margin = new Thickness(8, 0, 0, 0);
             btns.Children.Add(save);
@@ -1712,38 +1738,42 @@ namespace AgentHud
             _txtLaunchDs.TextChanged += delegate { LivePreview(); };
         }
 
-        // 页签：手动实现的按钮 + 页面切换（比系统 TabControl 好做暗色样式）
+        // 页签：胶囊式手动实现（v2.9.18）——选中薄荷绿胶囊，未选透明+悬停微亮
+        private int _selTab;
         private void AddTab(StackPanel bar, string label, int index)
         {
             Border b = new Border
             {
-                CornerRadius = new CornerRadius(8, 8, 0, 0),
-                Padding = new Thickness(14, 6, 14, 7),
-                Background = Ui.Brush(0xFF, 0x2A, 0x2A, 0x2A),
-                Margin = new Thickness(0, 0, 4, 0),
+                CornerRadius = new CornerRadius(16),
+                Padding = new Thickness(18, 6, 18, 7),
+                Background = Brushes.Transparent,
+                Margin = new Thickness(0, 0, 8, 0),
                 Cursor = Cursors.Hand,
             };
             TextBlock t = new TextBlock
             {
                 Text = label,
-                FontSize = 13,
-                FontWeight = FontWeights.Bold,
-                Foreground = Ui.Brush(0xFF, 0xAA, 0xAA, 0xAA),
+                FontSize = 12.5,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Ui.Brush(0xB8, 0xFF, 0xFF, 0xFF),
             };
             b.Child = t;
             int i = index;
             b.MouseLeftButtonDown += delegate { SwitchTab(i); };
+            b.MouseEnter += delegate { if (_selTab != i) b.Background = Ui.Brush(0x22, 0xFF, 0xFF, 0xFF); };
+            b.MouseLeave += delegate { if (_selTab != i) b.Background = Brushes.Transparent; };
             bar.Children.Add(b);
             _tabBtns.Add(b);
         }
 
         private void SwitchTab(int sel)
         {
+            _selTab = sel;
             for (int k = 0; k < _tabBtns.Count && k < _tabPages.Count; k++)
             {
                 bool on = k == sel;
-                _tabBtns[k].Background = on ? Ui.Brush(0xFF, 0x1F, 0x6E, 0x47) : Ui.Brush(0xFF, 0x2A, 0x2A, 0x2A);
-                ((TextBlock)_tabBtns[k].Child).Foreground = on ? Brushes.White : Ui.Brush(0xFF, 0xAA, 0xAA, 0xAA);
+                _tabBtns[k].Background = on ? Ui.Brush(0xFF, 0x1F, 0x9D, 0x63) : Brushes.Transparent;
+                ((TextBlock)_tabBtns[k].Child).Foreground = on ? Brushes.White : Ui.Brush(0xB8, 0xFF, 0xFF, 0xFF);
                 _tabPages[k].Visibility = on ? Visibility.Visible : Visibility.Collapsed;
             }
         }
@@ -1763,103 +1793,106 @@ namespace AgentHud
             catch { return null; }
         }
 
-        private Brush FieldBrush() { return Ui.Brush(0xFF, 0x28, 0x28, 0x28); }
+        private Brush FieldBrush() { return Ui.Brush(0xFF, 0x28, 0x2A, 0x30); }
 
-        private StackPanel Section(StackPanel root, string title)
-        {
-            StackPanel sp = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
-            AddTitle(sp, title);
-            root.Children.Add(sp);
-            return sp;
-        }
+        // ---------- v2.9.18 视觉套件：卡片分组 + 两栏行 + 开关 ----------
 
-        private void AddTitle(StackPanel sp, string title)
+        // 卡片：圆角分组容器，返回内容面板（卡片间 12 间距）
+        private StackPanel AddCard(StackPanel sp, string title)
         {
-            TextBlock t = new TextBlock
+            Border card = new Border
             {
-                Text = title,
-                FontSize = 13,
-                FontWeight = FontWeights.Bold,
-                Foreground = Ui.Brush(0xFF, 0x7C, 0xFC, 0x9E),
-                Margin = new Thickness(0, 0, 0, 6),
+                CornerRadius = new CornerRadius(10),
+                Background = Ui.Brush(0xFF, 0x20, 0x22, 0x27),
+                BorderBrush = Ui.Brush(0x24, 0xFF, 0xFF, 0xFF),
+                BorderThickness = new Thickness(1),
+                Margin = new Thickness(0, 0, 0, 12),
+                Padding = new Thickness(14, 11, 14, 12),
             };
-            sp.Children.Add(t);
+            StackPanel inner = new StackPanel();
+            inner.Children.Add(new TextBlock { Text = title, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = Ui.Brush(0xFF, 0x7C, 0xFC, 0x9E), Margin = new Thickness(0, 0, 0, 8) });
+            card.Child = inner;
+            sp.Children.Add(card);
+            return inner;
         }
 
-        private CheckBox AddCheck(StackPanel sp, string label, bool isChecked)
+        // 两栏行：左标签（170 定宽，可带灰字 hint）+ 右控件撑满
+        private void AddRow(StackPanel card, string label, FrameworkElement control, string hint)
         {
-            CheckBox c = new CheckBox
-            {
-                Content = label,
-                FontSize = 12.5,
-                Foreground = Ui.Brush(0xEE, 0xFF, 0xFF, 0xFF),
-                IsChecked = isChecked,
-                Margin = new Thickness(0, 3, 0, 3),
-                Cursor = Cursors.Hand,
-            };
-            sp.Children.Add(c);
-            return c;
+            Grid g = new Grid { Margin = new Thickness(0, 4, 0, 4) };
+            ColumnDefinition c0 = new ColumnDefinition(); c0.Width = new GridLength(170);
+            ColumnDefinition c1 = new ColumnDefinition(); c1.Width = new GridLength(1, GridUnitType.Star);
+            g.ColumnDefinitions.Add(c0);
+            g.ColumnDefinitions.Add(c1);
+            StackPanel left = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            left.Children.Add(new TextBlock { Text = label, FontSize = 12.5, Foreground = Ui.Brush(0xE8, 0xFF, 0xFF, 0xFF), TextWrapping = TextWrapping.Wrap });
+            if (hint != null && hint.Length > 0)
+                left.Children.Add(new TextBlock { Text = hint, FontSize = 11, Foreground = Ui.Brush(0x70, 0xFF, 0xFF, 0xFF), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 10, 0) });
+            Grid.SetColumn(left, 0);
+            g.Children.Add(left);
+            control.SetValue(Grid.ColumnProperty, 1);
+            control.VerticalAlignment = VerticalAlignment.Center;
+            control.Margin = new Thickness(10, 0, 0, 0);
+            g.Children.Add(control);
+            card.Children.Add(g);
         }
 
-        private void AddLabel(StackPanel sp, string text)
+        // 开关模板（XamlReader 内嵌）：40×20 轨道 + 14 圆钮，选中薄荷绿+钮右移
+        private const string SwitchXaml =
+            "<ControlTemplate xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\" TargetType=\"CheckBox\">"
+          + "<Grid Width=\"40\" Height=\"20\">"
+          + "<Border x:Name=\"track\" CornerRadius=\"10\" Background=\"#FF3A3D44\" BorderBrush=\"#33FFFFFF\" BorderThickness=\"1\"/>"
+          + "<Ellipse x:Name=\"thumb\" Width=\"14\" Height=\"14\" Fill=\"#FFC8CCD4\" HorizontalAlignment=\"Left\" Margin=\"3,0,0,0\"/>"
+          + "</Grid>"
+          + "<ControlTemplate.Triggers>"
+          + "<Trigger Property=\"IsChecked\" Value=\"True\">"
+          + "<Setter TargetName=\"track\" Property=\"Background\" Value=\"#FF1F9D63\"/>"
+          + "<Setter TargetName=\"thumb\" Property=\"Fill\" Value=\"White\"/>"
+          + "<Setter TargetName=\"thumb\" Property=\"HorizontalAlignment\" Value=\"Right\"/>"
+          + "<Setter TargetName=\"thumb\" Property=\"Margin\" Value=\"0,0,3,0\"/>"
+          + "</Trigger>"
+          + "</ControlTemplate.Triggers>"
+          + "</ControlTemplate>";
+
+        // 开关行：替代旧 AddCheck 的布尔项（字段仍为 CheckBox，Click 事件语义不变）
+        private CheckBox AddSwitch(StackPanel card, string label, bool isOn)
         {
-            TextBlock t = new TextBlock
-            {
-                Text = text,
-                FontSize = 12,
-                Foreground = Ui.Brush(0xAA, 0xFF, 0xFF, 0xFF),
-                Margin = new Thickness(0, 6, 0, 3),
-            };
-            sp.Children.Add(t);
+            CheckBox cb = new CheckBox { IsChecked = isOn, Cursor = Cursors.Hand, VerticalAlignment = VerticalAlignment.Center };
+            cb.Template = (ControlTemplate)System.Windows.Markup.XamlReader.Parse(SwitchXaml);
+            AddRow(card, label, cb, null);
+            return cb;
         }
 
-        private void AddHint(StackPanel sp, string text)
+        // 下拉行：撑满右列（不再 130 定宽）
+        private ComboBox AddCombo(StackPanel sp, string label, string[] options, string current, string suffix, string hint)
         {
-            TextBlock t = new TextBlock
-            {
-                Text = text,
-                FontSize = 11,
-                Foreground = Ui.Brush(0x77, 0xFF, 0xFF, 0xFF),
-                Margin = new Thickness(0, 2, 0, 0),
-            };
-            sp.Children.Add(t);
-        }
-
-        private ComboBox AddCombo(StackPanel sp, string label, string[] options, string current, string suffix)
-        {
-            AddLabel(sp, label);
             ComboBox cb = new ComboBox
             {
-                FontSize = 12,
-                Width = 130,
-                HorizontalAlignment = HorizontalAlignment.Left,
+                FontSize = 12.5,
+                Height = 28,
                 Background = FieldBrush(),
             };
             foreach (string o in options) cb.Items.Add(o + (suffix != null ? suffix : ""));
             int idx = Array.IndexOf(options, current);
             if (idx < 0 && !string.IsNullOrEmpty(current)) { cb.Items.Add(current + (suffix != null ? suffix : "")); idx = cb.Items.Count - 1; }   // 自定义值保留，不静默改写
             cb.SelectedIndex = idx >= 0 ? idx : 0;
-            sp.Children.Add(cb);
+            AddRow(sp, label, cb, hint);
             return cb;
         }
 
-        private ComboBox AddCombo(StackPanel sp, string label, string[] options, string current)
-        {
-            return AddCombo(sp, label, options, current, null);
-        }
-
-        // v2.9.10：滑条（右侧随动数值）
+        // 滑条行：滑条撑满 + 右侧随动数值徽标
         private Slider AddSlider(StackPanel sp, string label, double min, double max, double current)
         {
-            AddLabel(sp, label);
             DockPanel row = new DockPanel { LastChildFill = true };
             TextBlock val = new TextBlock
             {
                 Text = ((int)current).ToString(),
-                FontSize = 12,
+                FontSize = 12.5,
                 Foreground = Ui.Brush(0xEE, 0xFF, 0xFF, 0xFF),
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(8, 0, 0, 0),
+                MinWidth = 26,
+                TextAlignment = TextAlignment.Right,
             };
             Slider s = new Slider
             {
@@ -1868,8 +1901,6 @@ namespace AgentHud
                 Value = current,
                 IsSnapToTickEnabled = true,
                 TickFrequency = 5,
-                Width = 200,
-                HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Center,
                 Cursor = Cursors.Hand,
             };
@@ -1877,23 +1908,23 @@ namespace AgentHud
             DockPanel.SetDock(val, Dock.Right);
             row.Children.Add(val);
             row.Children.Add(s);
-            sp.Children.Add(row);
+            AddRow(sp, label, row, null);
             return s;
         }
 
-        private TextBox AddText(StackPanel sp, string label, string current)
+        // 文本行
+        private TextBox AddText(StackPanel sp, string label, string current, string hint)
         {
-            AddLabel(sp, label);
             TextBox tb = new TextBox
             {
-                FontSize = 12,
+                FontSize = 12.5,
                 Background = FieldBrush(),
                 Foreground = Brushes.White,
                 BorderBrush = Ui.Brush(0x44, 0xFF, 0xFF, 0xFF),
-                Padding = new Thickness(6, 4, 6, 4),
+                Padding = new Thickness(6, 5, 6, 5),
                 Text = current,
             };
-            sp.Children.Add(tb);
+            AddRow(sp, label, tb, hint);
             return tb;
         }
 
@@ -1905,29 +1936,31 @@ namespace AgentHud
                 FontSize = 12.5,
                 Cursor = Cursors.Hand,
                 Padding = new Thickness(14, 5, 14, 6),
-                Background = Ui.Brush(0xFF, 0x33, 0x33, 0x33),
+                Background = Ui.Brush(0xFF, 0x33, 0x36, 0x3D),
                 Foreground = Brushes.White,
                 BorderBrush = Ui.Brush(0x44, 0xFF, 0xFF, 0xFF),
             };
             b.Click += onClick;
+            b.MouseEnter += delegate { b.Opacity = 0.85; };
+            b.MouseLeave += delegate { b.Opacity = 1; };
             return b;
         }
 
+        // 额度变色阈值行：红/黄双下拉（见底=红档，中等=黄档）
         private void AddThresholds(StackPanel sp, string low, string mid)
         {
-            AddLabel(sp, "额度变色阈值（剩余百分比：低于红色档显红、低于黄色档显黄）");
             StackPanel row = new StackPanel { Orientation = Orientation.Horizontal };
             row.Children.Add(new TextBlock { Text = "见底", FontSize = 12, Foreground = Ui.Brush(0xCC, 0xFF, 0x8B, 0x8B), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
-            _cmbLow = new ComboBox { FontSize = 12, Width = 70, Background = FieldBrush() };
+            _cmbLow = new ComboBox { FontSize = 12.5, Width = 64, Height = 26, Background = FieldBrush() };
             foreach (string o in new string[] { "5", "10", "15", "20", "25", "30" }) _cmbLow.Items.Add(o);
             _cmbLow.SelectedIndex = Math.Max(0, Array.IndexOf(new string[] { "5", "10", "15", "20", "25", "30" }, low));
             row.Children.Add(_cmbLow);
-            row.Children.Add(new TextBlock { Text = "  中等", FontSize = 12, Foreground = Ui.Brush(0xCC, 0xFF, 0xD2, 0x4A), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
-            _cmbMid = new ComboBox { FontSize = 12, Width = 70, Background = FieldBrush() };
+            row.Children.Add(new TextBlock { Text = "  中等", FontSize = 12, Foreground = Ui.Brush(0xCC, 0xFF, 0xD2, 0x4A), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 4, 0) });
+            _cmbMid = new ComboBox { FontSize = 12.5, Width = 64, Height = 26, Background = FieldBrush() };
             foreach (string o in new string[] { "30", "40", "50", "60", "70" }) _cmbMid.Items.Add(o);
             _cmbMid.SelectedIndex = Math.Max(0, Array.IndexOf(new string[] { "30", "40", "50", "60", "70" }, mid));
             row.Children.Add(_cmbMid);
-            sp.Children.Add(row);
+            AddRow(sp, "GLM 额度变色阈值", row, "剩余额度低于黄档显黄、低于红档显红");
         }
 
         private string DirLabel(string v)
