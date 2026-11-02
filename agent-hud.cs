@@ -49,8 +49,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Agent HUD：HDR 开关 + DeepSeek 余额 + GLM 订阅用量悬浮侧边栏")]
 [assembly: AssemblyCompany("Agent HUD Project")]
 [assembly: AssemblyCopyright("Copyright (C) 2026 Agent HUD Project")]
-[assembly: AssemblyVersion("2.9.15.0")]
-[assembly: AssemblyFileVersion("2.9.15.0")]
+[assembly: AssemblyVersion("2.9.16.0")]
+[assembly: AssemblyFileVersion("2.9.16.0")]
 
 namespace AgentHud
 {
@@ -2583,15 +2583,15 @@ namespace AgentHud
             }
             else
             {
-                // 行内：HDR|分隔|DS|分隔|ZC|pad|抽屉面板（抽屉统一向右弹出，v2.9.15）
+                // 行内与竖向同构交错：HDR|分隔|DS|DS抽屉|分隔|ZC|ZC抽屉|pad——谁的抽屉弹谁右边（v2.9.16）
                 _barH.Children.Add(_hdrCell);
                 _barH.Children.Add(_sepTop);
                 _barH.Children.Add(_dsRow);
+                _barH.Children.Add(_dsDrawer);
                 _barH.Children.Add(_sepMid);
                 _barH.Children.Add(_zcRow);
-                _barH.Children.Add(_padCell);
-                _barH.Children.Add(_dsDrawer);
                 _barH.Children.Add(_zcDrawer);
+                _barH.Children.Add(_padCell);
                 // 列：把手行（顶）+ 行 + 底垫（与把手行对称，v2.9.14 用户反馈）
                 _stackH.Children.Add(_handleCell);
                 _stackH.Children.Add(_barH);
