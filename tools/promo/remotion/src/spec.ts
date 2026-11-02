@@ -1,53 +1,65 @@
-// 时间轴 —— @60fps;所有"配音驱动"节拍由口播实测时长推导(配音 wav 在 public/audio/nar/)
-// 改配音后:改 NARR.from(或跑 tools/promo/remotion/gen_timings.py)即可全片重排
+// 时间轴 —— @60fps;本文件由 tools/gen_timings.py 从配音实测时长自动生成,勿手改
+// 重排流程:换配音 -> 跑 gen_nar.py -> 跑 gen_timings.py -> 重渲
 export const FPS = 60;
-export const DUR = 5120; // 85.33s
+export const DUR = 4865; // 81.08s
 
 // HUD 尺寸:DIP × UIK(2.4) = 设计 px —— 与 agent-hud.cs 实测一致
 export const UIK = 2.4;
 export const d = (v: number) => v * UIK;
 
-// ---- 口播轴(帧)——实测 wav 时长(首尾静音已修剪) ----
-const N = (key: string, fromF: number, durS: number, text: string, sc: number) =>
-  ({ key, from: fromF, dur: Math.round(durS * FPS), text, sc });
+// ---- 口播轴(帧) ----
+export const NAR01 = { from: 30, end: 266 }; // 屏幕边上这块地方，你平时是不是完全没用过？
+export const NAR02 = { from: 291, end: 417 }; // Agent HUD 就是干这个的。
+export const NAR03 = { from: 443, end: 946 }; // HDR 开关、DeepSeek 余额、GLM 额度，天天要看的东西，全在这条边上。
+export const NAR04 = { from: 971, end: 1243 }; // HDR 得双击才切，第一下只是确认，不怕手滑。
+export const NAR05 = { from: 1269, end: 1501 }; // 开完 HDR，画面差别一眼就能看出来。
+export const NAR06 = { from: 1526, end: 1898 }; // 鼠标放大肥鱼上，余额直接弹出来；放噶漏姆上，两个额度圈就展开。
+export const NAR07 = { from: 1923, end: 2325 }; // 单击能把抽屉钉住不动，双击直接开 ZCode 或者 DSH。
+export const NAR08 = { from: 2350, end: 2697 }; // 最实用的是这个：ZCode 跑完活，角色头顶冒个气泡告诉你。
+export const NAR09 = { from: 2723, end: 3072 }; // 需要授权就在气泡上点个允许，结果写回 hook，任务接着跑。
+export const NAR10 = { from: 3097, end: 3519 }; // 额度剩多少看表情就知道：平时淡定，黄了发慌，红了直接痴呆。
+export const NAR11 = { from: 3544, end: 3895 }; // 安装没难度，向导点完就装好，hooks 它自己接。
+export const NAR12 = { from: 3920, end: 4202 }; // 它还留了命令行接口，一行 -notify 就能把消息发到桌面上。
+export const NAR13 = { from: 4227, end: 4733 }; // 开源免费，就一个 exe。GitHub 搜 agent-hud，让 Agent 住进你桌面。
+
 export const NARR = [
-  N('nar01', Math.round(0.50 * 60), 4.133, '你的屏幕边缘，是全桌面最容易被浪费的黄金位置。', 1),
-  N('nar02', Math.round(5.05 * 60), 2.323, '今天，把它交给 Agent HUD。', 1),
-  N('nar03', Math.round(7.79 * 60), 7.136, 'HDR 开关、DeepSeek 余额、GLM 额度，最常瞄的三样，全在这一条边上。', 2),
-  N('nar04', Math.round(16.16 * 60), 5.676, 'HDR 单击只是待确认，双击才真的切，防误触刻在骨子里。', 3),
-  N('nar05', Math.round(22.26 * 60), 3.475, '开的一瞬间，整个画面直接上了个档次。', 3),
-  N('nar06', Math.round(26.16 * 60), 6.897, '鼠标扫过大肥鱼，余额自己弹出来；扫过噶漏姆，两个额度圈一起展开。', 4),
-  N('nar07', Math.round(33.48 * 60), 4.162, '单击是固定，双击直接拉起 ZCode 或 DSH。', 4),
-  N('nar08', Math.round(38.06 * 60), 5.059, '我最喜欢的部分：ZCode 干完活，角色头顶直接冒气泡告诉你。', 5),
-  N('nar09', Math.round(43.54 * 60), 9.314, '权限确认，气泡上点个允许，原路写回 hook，人不用挪窝。', 5),
-  N('nar10', Math.round(53.27 * 60), 7.516, '额度还剩多少？看脸就知道：绿色淡定，黄色慌张，红色——它先替你痴呆。', 6),
-  N('nar11', Math.round(62.10 * 60), 6.270, 'Setup 双击装完，hooks 自动接好；托盘、自启、实时预览设置，全都有。', 7),
-  N('nar12', Math.round(68.79 * 60), 4.969, '命令行也留了门：一条 -notify，任何程序都能喂它消息。', 7),
-  N('nar13', Math.round(75.36 * 60), 7.747, '开源、免费、单文件零依赖。GitHub 搜 agent-hud——让你的 Agent，也住进你的桌面。', 8),
+  { key: 'nar01', from: 30, dur: 236, text: "屏幕边上这块地方，你平时是不是完全没用过？", sc: 0 },
+  { key: 'nar02', from: 291, dur: 126, text: "Agent HUD 就是干这个的。", sc: 0 },
+  { key: 'nar03', from: 443, dur: 503, text: "HDR 开关、DeepSeek 余额、GLM 额度，天天要看的东西，全在这条边上。", sc: 0 },
+  { key: 'nar04', from: 971, dur: 272, text: "HDR 得双击才切，第一下只是确认，不怕手滑。", sc: 0 },
+  { key: 'nar05', from: 1269, dur: 232, text: "开完 HDR，画面差别一眼就能看出来。", sc: 0 },
+  { key: 'nar06', from: 1526, dur: 372, text: "鼠标放大肥鱼上，余额直接弹出来；放噶漏姆上，两个额度圈就展开。", sc: 0 },
+  { key: 'nar07', from: 1923, dur: 402, text: "单击能把抽屉钉住不动，双击直接开 ZCode 或者 DSH。", sc: 0 },
+  { key: 'nar08', from: 2350, dur: 347, text: "最实用的是这个：ZCode 跑完活，角色头顶冒个气泡告诉你。", sc: 0 },
+  { key: 'nar09', from: 2723, dur: 349, text: "需要授权就在气泡上点个允许，结果写回 hook，任务接着跑。", sc: 0 },
+  { key: 'nar10', from: 3097, dur: 422, text: "额度剩多少看表情就知道：平时淡定，黄了发慌，红了直接痴呆。", sc: 0 },
+  { key: 'nar11', from: 3544, dur: 351, text: "安装没难度，向导点完就装好，hooks 它自己接。", sc: 0 },
+  { key: 'nar12', from: 3920, dur: 282, text: "它还留了命令行接口，一行 -notify 就能把消息发到桌面上。", sc: 0 },
+  { key: 'nar13', from: 4227, dur: 506, text: "开源免费，就一个 exe。GitHub 搜 agent-hud，让 Agent 住进你桌面。", sc: 0 },
 ] as const;
-export const narF = (key: string) => NARR.find((n) => n.key === key)!.from;
-export const narD = (key: string) => NARR.find((n) => n.key === key)!.dur;
+export const narF = (key: string) => (NARR as readonly { key: string; from: number }[]).find((n) => n.key === key)!.from;
+export const narD = (key: string) => (NARR as readonly { key: string; dur: number }[]).find((n) => n.key === key)!.dur;
 
 // ---- 场景(帧) ----
 export const SHOTS = {
-  s1: { from: 0, dur: 443 },        // 聚光+滑入锁定(开场独展正中)
-  s2: { from: 443, dur: 530 },      // 归位+标注+吸附演示
-  s3: { from: 973, dur: 563 },      // HDR 双击
-  s4: { from: 1536, dur: 726 },     // 抽屉
-  s5: { from: 2262, dur: 898 },     // 气泡
-  s6: { from: 3160, dur: 554 },     // 三态
-  s7: { from: 3714, dur: 791 },     // 使用
-  s8: { from: 4505, dur: 615 },     // 合影
+  s1: { from: 0, dur: 398 }, // 聚光+滑入锁定
+  s2: { from: 398, dur: 543 }, // 归位+标注+吸附
+  s3: { from: 941, dur: 552 }, // HDR 双击
+  s4: { from: 1493, dur: 835 }, // 抽屉
+  s5: { from: 2328, dur: 733 }, // 气泡
+  s6: { from: 3061, dur: 471 }, // 三态
+  s7: { from: 3532, dur: 678 }, // 使用+终端
+  s8: { from: 4210, dur: 655 }, // 合影
 } as const;
 
-// ---- 场景内节拍(全部相对 shot.from,由口播起点推导) ----
+// ---- 场景内节拍(相对 shot.from,由口播起点推导) ----
 const rel = (shotFrom: number, absF: number) => absF - shotFrom;
-const nRel = (key: string, shotFrom: number, plusF = 0) => rel(shotFrom, narF(key)) + plusF;
+const nRel = (key: string, shotFrom: number, plus = 0) => rel(shotFrom, narF(key)) + plus;
 
 export const S1 = {
   SL0: 313, SL1: 370, LOCK: 370,
   rise0: 424, lap1: [382, 396], lap2: [402, 422],
-  titleT0: nRel('nar02', 0, 33), titleOut: [424, 441],
+  titleT0: nRel('nar02', 0, 33), titleOut: [379, 396],
 };
 export const S2 = {
   dock: [0, 37],
@@ -60,7 +72,7 @@ export const S3 = {
   kIn: [9, 39],
   ARM: nRel('nar04', SHOTS.s3.from, 135),
   ON: nRel('nar04', SHOTS.s3.from, 219),
-  washIn: nRel('nar05', SHOTS.s3.from, 21), washOut: [540, 560],
+  washIn: nRel('nar05', SHOTS.s3.from, 21), washOut: [529, 549],
   chip: nRel('nar05', SHOTS.s3.from, 42),
 };
 export const S4 = {
@@ -68,14 +80,14 @@ export const S4 = {
   ZC0: nRel('nar06', SHOTS.s4.from, 250),
   cur1: [30, 63], cur2: [250, 275],
   chips: [nRel('nar07', SHOTS.s4.from, 40), nRel('nar07', SHOTS.s4.from, 90)],
-  close: [666, 696],
+  close: [775, 805],
 };
 export const S5 = {
   B1: nRel('nar08', SHOTS.s5.from, 70),
   B2: nRel('nar09', SHOTS.s5.from, 30),
   B1_CLOSE: nRel('nar09', SHOTS.s5.from, 10),
   CLICK: nRel('nar09', SHOTS.s5.from, 165),
-  cursorIn: [446, 509],
+  cursorIn: [491, 554],
 };
 export const S6 = {
   tuck: [0, 22],

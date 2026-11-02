@@ -116,10 +116,10 @@ export const Hud: React.FC<{
       <div style={{ position: 'absolute', left: W / 2 - gifSz / 2, top: yRow2 + (76 * u - gifSz) / 2, width: gifSz, height: gifSz }}>
         <Gif src={staticFile(`gifs/anim-${chZc}.gif`)} width={gifSz} height={gifSz} fit="fill" />
       </div>
-      {/* 状态点:DS 10px 右下(8,4);ZC 9px 双点(7,3,缝2) */}
-      <Dot cx={W - 8 * u - 5 * u} cy={yRow1 + 76 * u - 4 * u - 5 * u} dia={10 * u} color={dotDs} />
-      <Dot cx={W - 7 * u - 4.5 * u} cy={yRow2 + 76 * u - 3 * u - 4.5 * u - 5.5 * u} dia={9 * u} color={dotF} />
-      <Dot cx={W - 7 * u - 4.5 * u} cy={yRow2 + 76 * u - 3 * u - 4.5 * u} dia={9 * u} color={dotW} />
+      {/* 状态点(真机 hud_pw.png 实测):DS dia6 右14/下6.6;ZC dia5.5 右12,双点间距 10 */}
+      <Dot cx={W - 14 * u} cy={yRow1 + 76 * u - 6.6 * u} dia={6 * u} color={dotDs} />
+      <Dot cx={W - 12 * u} cy={yRow2 + 76 * u - 17.5 * u} dia={5.5 * u} color={dotF} />
+      <Dot cx={W - 12 * u} cy={yRow2 + 76 * u - 7.5 * u} dia={5.5 * u} color={dotW} />
       {/* DS 抽屉:面板内下展,余额 17px bold */}
       {openDs > 0.01 && (
         <div style={{ position: 'absolute', left: 0, top: yDs, width: W, height: dsH, overflow: 'hidden' }}>
