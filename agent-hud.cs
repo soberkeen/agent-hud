@@ -49,8 +49,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Agent HUD：HDR 开关 + DeepSeek 余额 + GLM 订阅用量悬浮侧边栏")]
 [assembly: AssemblyCompany("Agent HUD Project")]
 [assembly: AssemblyCopyright("Copyright (C) 2026 Agent HUD Project")]
-[assembly: AssemblyVersion("2.9.11.0")]
-[assembly: AssemblyFileVersion("2.9.11.0")]
+[assembly: AssemblyVersion("2.9.12.0")]
+[assembly: AssemblyFileVersion("2.9.12.0")]
 
 namespace AgentHud
 {
@@ -2486,6 +2486,7 @@ namespace AgentHud
         private readonly DispatcherTimer _tuckTimer;
         private readonly DispatcherTimer _dataTimer;
         private readonly DispatcherTimer _panelHideTimer;
+        private DispatcherTimer _posSaveTimer;   // v2.9.12：位置变化去抖落盘（关机时 Closed 不触发，不能只靠退出保存）
 
         // 图标行 + 抽屉
         private Ellipse _dsDot, _zcFiveDot, _zcWeekDot;
@@ -2597,6 +2598,16 @@ namespace AgentHud
                 double moved = Math.Abs(Left - preX) + Math.Abs(Top - preY);
                 if (moved >= 4) UpdateDock(true);
             };
+
+            // v2.9.12：位置落盘不再依赖 Closed——Windows 关机/重启/taskkill 时 Closed 不触发，
+            // pos 文件停留在旧坐标，开机自启恢复错位。LocationChanged 去抖 500ms 即写。
+            _posSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+            _posSaveTimer.Tick += delegate
+            {
+                _posSaveTimer.Stop();
+                try { File.WriteAllText(PosFile, ((int)Left).ToString() + "," + ((int)Top).ToString()); } catch { }
+            };
+            LocationChanged += delegate { if (_posSaveTimer != null) { _posSaveTimer.Stop(); _posSaveTimer.Start(); } };
             stack.Children.Add(handle);
 
             // ---- HDR 圆钮（美化 + 双击确认防误触） ----
@@ -2809,6 +2820,7 @@ namespace AgentHud
                 _pollTimer.Stop();
                 _dataTimer.Stop();
                 _armTimer.Stop();
+                if (_posSaveTimer != null) _posSaveTimer.Stop();   // 直接写终值，防去抖定时器随后覆盖
                 if (_tray != null) { _tray.Visible = false; _tray.Dispose(); }
                 try { File.WriteAllText(PosFile, ((int)Left).ToString() + "," + ((int)Top).ToString()); } catch { }
                 // 显式释放单实例锁：互斥锁本要等进程退出才释放，那期间快速重启的新实例
