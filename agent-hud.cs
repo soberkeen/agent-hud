@@ -49,8 +49,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Agent HUD：HDR 开关 + DeepSeek 余额 + GLM 订阅用量悬浮侧边栏")]
 [assembly: AssemblyCompany("Agent HUD Project")]
 [assembly: AssemblyCopyright("Copyright (C) 2026 Agent HUD Project")]
-[assembly: AssemblyVersion("2.9.13.0")]
-[assembly: AssemblyFileVersion("2.9.13.0")]
+[assembly: AssemblyVersion("2.9.14.0")]
+[assembly: AssemblyFileVersion("2.9.14.0")]
 
 namespace AgentHud
 {
@@ -2468,10 +2468,10 @@ namespace AgentHud
         private const double ZcDrawerH = 54;   // ZCode 抽屉展开高（34 圈+标签）
         private const double ClosedH = 268;    // 抽屉全收起（双角色）+ 把手行 的窗口高度
         private const double RowH = 76;        // 单个角色行高（隐藏角色时从 ClosedH 扣除）
-        // v2.9.13 横向条几何：bar 单元宽与收起高（把手12+HDR76+pad6+双角色行104×2+双分隔7×2）
-        private const double HBarH = 82;       // 横向收起高（行76+pad6）
+        // v2.9.13 横向条几何：把手行16+HDR76+pad6+双角色行104×2+双分隔7×2（把手固定横向顶条，与竖向同款）
+        private const double HBarH = 98;       // 横向收起高（把手行16+行76+pad6）
         private const double HRowW = 104;      // 横向角色行单元宽（与竖向窗宽一致，内部布局零改动）
-        private const double HHandleW = 12, HHdrW = 76, HPadW = 6;
+        private const double HHdrW = 76, HPadW = 6;
         private double _windowH = ClosedH;     // 当前窗口高度基准值（动画起点/终点计算用）
         private string _orient = "v";          // 当前已应用的朝向：v=竖向 h=横向
         private bool _hBarBottom;              // 横向时抽屉区是否在 bar 上方（贴底边=true）
@@ -2489,15 +2489,16 @@ namespace AgentHud
             return h;
         }
 
-        // 横向收起宽：把手12+HDR76+pad6+可见角色行×104+分隔线（双行2条14/单行1条7）
+        // 横向收起宽：HDR76+pad6+可见角色行×104+分隔线（双行2条14/单行1条7）；把手是全宽顶条不计宽
         private double ClosedWidthNow()
         {
             bool ds = SettingsData.Flag(_cfg, "show_ds"), zc = SettingsData.Flag(_cfg, "show_zc");
             int rows = (ds ? 1 : 0) + (zc ? 1 : 0);
-            return HHandleW + HHdrW + HPadW + rows * HRowW + (rows > 1 ? 14 : rows == 1 ? 7 : 0);
+            return HHdrW + HPadW + rows * HRowW + (rows > 1 ? 14 : rows == 1 ? 7 : 0);
         }
 
-        // v2.9.13：宽高双向随开合伸缩（纵向高变、横向高变+宽随行数）
+        // v2.9.13：宽高双向随开合伸缩（纵向高变、横向高变+宽随行数）；
+        // 两朝向都必须显式写 Width——切回竖向时残留的横向宽不重置就是"UI 变宽"bug
         private void UpdateHeightNow()
         {
             double drawers = (_openDs ? DsDrawerH : 0) + (_openZc ? ZcDrawerH : 0);
@@ -2505,7 +2506,7 @@ namespace AgentHud
             if (_dock == "bottom" && Math.Abs(targetH - _windowH) > 0.5) Top += targetH - _windowH;
             BeginAnimation(Window.HeightProperty, null);
             Height = targetH;
-            if (_orient == "h") Width = ClosedWidthNow();
+            Width = _orient == "h" ? ClosedWidthNow() : 104;
             _windowH = targetH;
         }
 
@@ -2562,7 +2563,6 @@ namespace AgentHud
             }
             else
             {
-                _barH.Children.Add(_handleCell);
                 _barH.Children.Add(_hdrCell);
                 _barH.Children.Add(_sepTop);
                 _barH.Children.Add(_dsRow);
@@ -2571,9 +2571,9 @@ namespace AgentHud
                 _barH.Children.Add(_padCell);
                 _drawerStack.Children.Add(_dsDrawer);
                 _drawerStack.Children.Add(_zcDrawer);
-                // 贴底边：抽屉区在 bar 上方（朝屏幕内侧展开）；其余（贴顶/悬浮）bar 在上
-                if (_hBarBottom) { _stackH.Children.Add(_drawerStack); _stackH.Children.Add(_barH); }
-                else { _stackH.Children.Add(_barH); _stackH.Children.Add(_drawerStack); }
+                // 把手=横条顶行（用户指定的横排形态）；贴底边时抽屉区在把手行之上（朝屏幕内侧展开）
+                if (_hBarBottom) { _stackH.Children.Add(_drawerStack); _stackH.Children.Add(_handleCell); _stackH.Children.Add(_barH); }
+                else { _stackH.Children.Add(_handleCell); _stackH.Children.Add(_barH); _stackH.Children.Add(_drawerStack); }
                 _panelGrid.Children.Add(_stackH);
             }
         }
@@ -2581,11 +2581,11 @@ namespace AgentHud
         // 朝向相关的几何样式（尺寸属性随朝向翻转；颜色由 ApplySkin/ApplySkinColors 管，此处不动）
         private void StyleCells(bool h)
         {
-            // 把手：竖=顶部横条 46×5；横=左端竖条 5×46
-            _handleCell.Height = h ? double.NaN : 16;
-            _handleCell.Width = h ? HHandleW : double.NaN;
-            _handlePill.Width = h ? 5 : 46;
-            _handlePill.Height = h ? 46 : 5;
+            // 把手两朝向同为顶部横条 46×5（竖=面板顶；横=横条顶行），无朝向差异
+            _handleCell.Height = 16;
+            _handleCell.Width = double.NaN;
+            _handlePill.Width = 46;
+            _handlePill.Height = 5;
             // HDR 区：竖=高76 撑满宽；横=宽76
             _hdrCell.Height = h ? double.NaN : 76;
             _hdrCell.Width = h ? HHdrW : double.NaN;
