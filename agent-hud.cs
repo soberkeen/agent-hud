@@ -1572,7 +1572,7 @@ namespace AgentHud
             _cmbBlurTint = AddCombo(p0, "毛玻璃蒙版浓度", new string[] { "清透", "标准", "深邃" }, VeilLabel(_cfg["blur_veil"]));
             _cmbBubbleDir = AddCombo(p0, "气泡弹出方向", new string[] { "自动", "永远向右", "永远向左" }, DirLabel(_cfg["bubble_dir"]));
             AddTitle(p0, "前台全屏程序（游戏/全屏视频）运行时");
-            _cmbFs = AddCombo(p0, "侧边栏行为", new string[] { "自动隐藏", "缩边显示", "保持显示" }, FsLabel(_cfg["fullscreen_action"]));
+            _cmbFs = AddCombo(p0, "全屏时行为", new string[] { "自动隐藏", "缩边显示", "保持显示" }, FsLabel(_cfg["fullscreen_action"]));
             _cmbDock = AddCombo(p0, "贴边行为", new string[] { "吸附隐藏", "仅吸附" }, DockActLabel(_cfg["dock_action"]));
             _cmbOrient = AddCombo(p0, "布局方向", new string[] { "竖向", "横向", "自动跟随贴边" }, OrientLabel(_cfg["orientation"]));
             AddHint(p0, "five=5小时额度（推荐） / week=本周 / worst=两者取更差");
