@@ -1243,7 +1243,7 @@ namespace AgentHud
                         var permHook = new Dictionary<string, object> { { "type", "process" }, { "command", exe },
                             { "args", new object[] { "-confirm", "--title", "权限请求", "--body", "ZCode 请求执行操作，请在 HUD 上选择", "--app", "zcode", "--timeout", "110", "--wait" } }, { "timeoutMs", 120000 } };
                         var permNotifyHook = new Dictionary<string, object> { { "type", "process" }, { "command", exe },
-                            { "args", new object[] { "-notify", "Agent 提问", "ZCode 正在等待你的回答，请回到会话窗口查看选项", "zcode" } }, { "timeoutMs", 15000 } };
+                            { "args", new object[] { "-notify", "待确认", "ZCode 有提问或计划待审批，HUD 无法代批，请回到 ZCode 窗口操作", "zcode" } }, { "timeoutMs", 15000 } };
                         // 追加而非覆盖：用户已有的同名事件 hook 保留
                         foreach (var pair in new[] { new KeyValuePair<string, object>("Stop", (object)stopHook) })
                         {
@@ -1272,14 +1272,14 @@ namespace AgentHud
                             var d = prList[i] as IDictionary<string, object>;
                             if (d == null || !d.ContainsKey("hooks") || !SerializeContainsCommand(d["hooks"], exe)) continue;
                             string m = d.ContainsKey("matcher") ? (d["matcher"] + "") : null;
-                            if (m == "^AskUserQuestion$") { hasNotifyMatcher = true; continue; }
-                            if (m == "^(?!AskUserQuestion$).+$") { hasConfirmMatcher = true; continue; }
-                            prList.RemoveAt(i);   // 旧版无 matcher 条目 → 迁移删除
+                            if (m == "^(AskUserQuestion|ExitPlanMode)$") { hasNotifyMatcher = true; continue; }
+                            if (m == "^(?!(AskUserQuestion|ExitPlanMode)$).+$") { hasConfirmMatcher = true; continue; }
+                            prList.RemoveAt(i);   // 旧版 matcher（含 v2.9.11 单问句版）→ 迁移替换
                         }
                         if (!hasNotifyMatcher)
-                            prList.Add(new Dictionary<string, object> { { "matcher", "^AskUserQuestion$" }, { "hooks", new object[] { permNotifyHook } } });
+                            prList.Add(new Dictionary<string, object> { { "matcher", "^(AskUserQuestion|ExitPlanMode)$" }, { "hooks", new object[] { permNotifyHook } } });
                         if (!hasConfirmMatcher)
-                            prList.Add(new Dictionary<string, object> { { "matcher", "^(?!AskUserQuestion$).+$" }, { "hooks", new object[] { permHook } } });
+                            prList.Add(new Dictionary<string, object> { { "matcher", "^(?!(AskUserQuestion|ExitPlanMode)$).+$" }, { "hooks", new object[] { permHook } } });
                         events["PermissionRequest"] = prList.ToArray();
                         hooks["events"] = events;
                         root["hooks"] = hooks;
