@@ -49,8 +49,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Agent HUD：HDR 开关 + DeepSeek 余额 + GLM 订阅用量悬浮侧边栏")]
 [assembly: AssemblyCompany("Agent HUD Project")]
 [assembly: AssemblyCopyright("Copyright (C) 2026 Agent HUD Project")]
-[assembly: AssemblyVersion("2.9.12.0")]
-[assembly: AssemblyFileVersion("2.9.12.0")]
+[assembly: AssemblyVersion("2.9.13.0")]
+[assembly: AssemblyFileVersion("2.9.13.0")]
 
 namespace AgentHud
 {
@@ -430,6 +430,8 @@ namespace AgentHud
             d["launch_zcode"] = "";                  // 双击 GLM 角色启动的程序
             d["launch_dsh"] = "";                    // 双击 DeepSeek 角色启动的程序
             d["fullscreen_action"] = "hide";         // 前台全屏程序时：hide=隐藏 / tuck=缩边 / none=不动
+            d["dock_action"] = "hide";               // 贴边时：hide=半隐藏露12px / pin=仅吸附保持完整显示
+            d["orientation"] = "vertical";           // 布局方向：vertical / horizontal / auto（贴上下横、贴左右竖）
             d["skin"] = "dark";                      // 面板材质：dark=黑 / glass=玻璃 / blur=毛玻璃
             d["blur_tint"] = "C8141E26";             // （仅旧系统生效）毛玻璃 Accent 色调
             d["bubble_dir"] = "auto";                // 气泡弹出方向：auto / right / left
@@ -528,6 +530,8 @@ namespace AgentHud
             sb.AppendLine("launch_zcode=" + d["launch_zcode"]);
             sb.AppendLine("launch_dsh=" + d["launch_dsh"]);
             sb.AppendLine("fullscreen_action=" + d["fullscreen_action"]);
+            sb.AppendLine("dock_action=" + d["dock_action"]);
+            sb.AppendLine("orientation=" + d["orientation"]);
             sb.AppendLine("skin=" + d["skin"]);
             sb.AppendLine("blur_tint=" + d["blur_tint"]);
             sb.AppendLine("blur_veil=" + d["blur_veil"]);
@@ -1492,7 +1496,7 @@ namespace AgentHud
         private readonly Dictionary<string, string> _initialCfg;
         private CheckBox _chkAutostart, _chkTray, _chkHover, _chkShowKey, _chkShowDs, _chkShowZc, _chkWatchToasts, _chkVoice;
         private Slider _sldVoice;
-        private ComboBox _cmbRefresh, _cmbLow, _cmbMid, _cmbMoodSrc, _cmbFs, _cmbSkin, _cmbBlurTint, _cmbBubbleDir, _cmbDsWarn, _cmbDsDaze;
+        private ComboBox _cmbRefresh, _cmbLow, _cmbMid, _cmbMoodSrc, _cmbFs, _cmbSkin, _cmbBlurTint, _cmbBubbleDir, _cmbDsWarn, _cmbDsDaze, _cmbDock, _cmbOrient;
         private PasswordBox _pwdKey;
         private TextBox _txtKey, _txtDsBase, _txtZcBase, _txtLaunchZc, _txtLaunchDs;
         private TextBlock _testResult;
@@ -1569,6 +1573,8 @@ namespace AgentHud
             _cmbBubbleDir = AddCombo(p0, "气泡弹出方向", new string[] { "自动", "永远向右", "永远向左" }, DirLabel(_cfg["bubble_dir"]));
             AddTitle(p0, "前台全屏程序（游戏/全屏视频）运行时");
             _cmbFs = AddCombo(p0, "侧边栏行为", new string[] { "自动隐藏", "缩边显示", "保持显示" }, FsLabel(_cfg["fullscreen_action"]));
+            _cmbDock = AddCombo(p0, "贴边行为", new string[] { "吸附隐藏", "仅吸附" }, DockActLabel(_cfg["dock_action"]));
+            _cmbOrient = AddCombo(p0, "布局方向", new string[] { "竖向", "横向", "自动跟随贴边" }, OrientLabel(_cfg["orientation"]));
             AddHint(p0, "five=5小时额度（推荐） / week=本周 / worst=两者取更差");
             AddThresholds(p0, _cfg["warn_low"], _cfg["warn_mid"]);
             AddTitle(p0, "双击角色启动程序");
@@ -1698,7 +1704,7 @@ namespace AgentHud
             SwitchTab(0);
 
             // 实时预览挂接：选择类控件一变就套用
-            foreach (ComboBox cb in new ComboBox[] { _cmbRefresh, _cmbLow, _cmbMid, _cmbMoodSrc, _cmbFs, _cmbSkin, _cmbBlurTint, _cmbBubbleDir, _cmbDsWarn, _cmbDsDaze })
+            foreach (ComboBox cb in new ComboBox[] { _cmbRefresh, _cmbLow, _cmbMid, _cmbMoodSrc, _cmbFs, _cmbDock, _cmbOrient, _cmbSkin, _cmbBlurTint, _cmbBubbleDir, _cmbDsWarn, _cmbDsDaze })
                 cb.SelectionChanged += delegate { LivePreview(); };
             foreach (CheckBox ck in new CheckBox[] { _chkWatchToasts, _chkVoice, _chkTray, _chkHover, _chkShowDs, _chkShowZc })
                 ck.Click += delegate { LivePreview(); };
@@ -1966,6 +1972,8 @@ namespace AgentHud
             d["launch_dsh"] = _txtLaunchDs.Text.Trim();
             d["zc_mood_source"] = (string)_cmbMoodSrc.SelectedItem ?? "five";
             d["fullscreen_action"] = new string[] { "hide", "tuck", "none" }[Math.Max(0, _cmbFs.SelectedIndex)];
+            d["dock_action"] = new string[] { "hide", "pin" }[Math.Max(0, _cmbDock.SelectedIndex)];
+            d["orientation"] = new string[] { "vertical", "horizontal", "auto" }[Math.Max(0, _cmbOrient.SelectedIndex)];
             d["skin"] = new string[] { "blur-dark", "blur-light", "dock" }[Math.Max(0, _cmbSkin.SelectedIndex)];
             d["blur_veil"] = new string[] { "18", "30", "55" }[Math.Max(0, _cmbBlurTint.SelectedIndex)];
             d["bubble_dir"] = new string[] { "auto", "right", "left" }[Math.Max(0, _cmbBubbleDir.SelectedIndex)];
@@ -1988,6 +1996,20 @@ namespace AgentHud
             if (v == "tuck") return "缩边显示";
             if (v == "none") return "保持显示";
             return "自动隐藏";
+        }
+
+        // v2.9.13 贴边行为/布局方向下拉标签
+        private string DockActLabel(string v)
+        {
+            if (v == "pin") return "仅吸附";
+            return "吸附隐藏";
+        }
+
+        private string OrientLabel(string v)
+        {
+            if (v == "horizontal") return "横向";
+            if (v == "auto") return "自动跟随贴边";
+            return "竖向";
         }
 
         private string ComboValue(ComboBox cb, string suffix)
@@ -2446,11 +2468,19 @@ namespace AgentHud
         private const double ZcDrawerH = 54;   // ZCode 抽屉展开高（34 圈+标签）
         private const double ClosedH = 268;    // 抽屉全收起（双角色）+ 把手行 的窗口高度
         private const double RowH = 76;        // 单个角色行高（隐藏角色时从 ClosedH 扣除）
+        // v2.9.13 横向条几何：bar 单元宽与收起高（把手12+HDR76+pad6+双角色行104×2+双分隔7×2）
+        private const double HBarH = 82;       // 横向收起高（行76+pad6）
+        private const double HRowW = 104;      // 横向角色行单元宽（与竖向窗宽一致，内部布局零改动）
+        private const double HHandleW = 12, HHdrW = 76, HPadW = 6;
         private double _windowH = ClosedH;     // 当前窗口高度基准值（动画起点/终点计算用）
+        private string _orient = "v";          // 当前已应用的朝向：v=竖向 h=横向
+        private bool _hBarBottom;              // 横向时抽屉区是否在 bar 上方（贴底边=true）
 
         // 当前配置下的收起高度（隐藏角色会减行高；分隔线 7px 在行内已含，单角色减 1 条 mid sep≈7）
+        // v2.9.13：横向时收起高恒为 HBarH（行隐藏减宽不减高，见 ClosedWidthNow）
         private double ClosedHeightNow()
         {
+            if (_orient == "h") return HBarH;
             double h = ClosedH;
             bool ds = SettingsData.Flag(_cfg, "show_ds"), zc = SettingsData.Flag(_cfg, "show_zc");
             if (!ds) h -= RowH;
@@ -2459,15 +2489,133 @@ namespace AgentHud
             return h;
         }
 
+        // 横向收起宽：把手12+HDR76+pad6+可见角色行×104+分隔线（双行2条14/单行1条7）
+        private double ClosedWidthNow()
+        {
+            bool ds = SettingsData.Flag(_cfg, "show_ds"), zc = SettingsData.Flag(_cfg, "show_zc");
+            int rows = (ds ? 1 : 0) + (zc ? 1 : 0);
+            return HHandleW + HHdrW + HPadW + rows * HRowW + (rows > 1 ? 14 : rows == 1 ? 7 : 0);
+        }
+
+        // v2.9.13：宽高双向随开合伸缩（纵向高变、横向高变+宽随行数）
         private void UpdateHeightNow()
         {
-            double target = ClosedHeightNow() + (_openDs ? DsDrawerH : 0) + (_openZc ? ZcDrawerH : 0);
-            if (_dock == "bottom" && Math.Abs(target - _windowH) > 0.5) Top += target - _windowH;
-            if (_dock == "bottom" && Math.Abs(target - _windowH) > 0.5) Top += target - _windowH;
-            
+            double drawers = (_openDs ? DsDrawerH : 0) + (_openZc ? ZcDrawerH : 0);
+            double targetH = ClosedHeightNow() + drawers;
+            if (_dock == "bottom" && Math.Abs(targetH - _windowH) > 0.5) Top += targetH - _windowH;
             BeginAnimation(Window.HeightProperty, null);
-            Height = target;
-            _windowH = target;
+            Height = targetH;
+            if (_orient == "h") Width = ClosedWidthNow();
+            _windowH = targetH;
+        }
+
+        // ---------- v2.9.13 朝向：竖向（默认）/横向/自动（贴上下横、贴左右竖、悬浮保持上次） ----------
+
+        private string EffectiveOrientation()
+        {
+            string s;
+            try { s = _cfg["orientation"]; } catch { s = "vertical"; }
+            if (s == "horizontal") return "h";
+            if (s == "auto")
+            {
+                if (_dock == "top" || _dock == "bottom") return "h";
+                if (_dock == "left" || _dock == "right") return "v";
+                return _orient;   // 悬浮：保持当前朝向
+            }
+            return "v";
+        }
+
+        // dock/设置变化后调用：朝向或横向抽屉侧变了才重建（重建有视觉成本，幂等跳过）
+        private void EnsureLayout()
+        {
+            string want = EffectiveOrientation();
+            bool bottom = _dock == "bottom";
+            if (want == _orient && (!_orient.Equals("h") || bottom == _hBarBottom)) return;
+            _orient = want;
+            _hBarBottom = bottom;
+            ArrangeOrientation();
+            UpdateHeightNow();
+        }
+
+        // 共享 cell 重排：元素只建一次，换朝向仅改父容器与几何属性（事件委托全部保留）
+        private void ArrangeOrientation()
+        {
+            bool h = _orient == "h";
+            _stackV.Children.Clear();
+            _barH.Children.Clear();
+            _drawerStack.Children.Clear();
+            _stackH.Children.Clear();
+            _panelGrid.Children.Clear();
+            StyleCells(h);
+            if (!h)
+            {
+                _stackV.Children.Add(_handleCell);
+                _stackV.Children.Add(_hdrCell);
+                _stackV.Children.Add(_sepTop);
+                _stackV.Children.Add(_dsRow);
+                _stackV.Children.Add(_dsDrawer);
+                _stackV.Children.Add(_sepMid);
+                _stackV.Children.Add(_zcRow);
+                _stackV.Children.Add(_zcDrawer);
+                _stackV.Children.Add(_padCell);
+                _panelGrid.Children.Add(_stackV);
+            }
+            else
+            {
+                _barH.Children.Add(_handleCell);
+                _barH.Children.Add(_hdrCell);
+                _barH.Children.Add(_sepTop);
+                _barH.Children.Add(_dsRow);
+                _barH.Children.Add(_sepMid);
+                _barH.Children.Add(_zcRow);
+                _barH.Children.Add(_padCell);
+                _drawerStack.Children.Add(_dsDrawer);
+                _drawerStack.Children.Add(_zcDrawer);
+                // 贴底边：抽屉区在 bar 上方（朝屏幕内侧展开）；其余（贴顶/悬浮）bar 在上
+                if (_hBarBottom) { _stackH.Children.Add(_drawerStack); _stackH.Children.Add(_barH); }
+                else { _stackH.Children.Add(_barH); _stackH.Children.Add(_drawerStack); }
+                _panelGrid.Children.Add(_stackH);
+            }
+        }
+
+        // 朝向相关的几何样式（尺寸属性随朝向翻转；颜色由 ApplySkin/ApplySkinColors 管，此处不动）
+        private void StyleCells(bool h)
+        {
+            // 把手：竖=顶部横条 46×5；横=左端竖条 5×46
+            _handleCell.Height = h ? double.NaN : 16;
+            _handleCell.Width = h ? HHandleW : double.NaN;
+            _handlePill.Width = h ? 5 : 46;
+            _handlePill.Height = h ? 46 : 5;
+            // HDR 区：竖=高76 撑满宽；横=宽76
+            _hdrCell.Height = h ? double.NaN : 76;
+            _hdrCell.Width = h ? HHdrW : double.NaN;
+            // 分隔线：竖=横线 1px 高；横=竖线 1px 宽
+            StyleSep(_sepTop, h);
+            StyleSep(_sepMid, h);
+            // 角色行：横排单元定宽 104（内部 74 图标+状态点布局与竖向完全一致）
+            _dsRow.Width = h ? HRowW : double.NaN;
+            _zcRow.Width = h ? HRowW : double.NaN;
+            _dsRow.Height = h ? double.NaN : 76;
+            _zcRow.Height = h ? double.NaN : 76;
+            // pad：竖=底部 6 高；横=右端 6 宽
+            _padCell.Height = h ? double.NaN : 6;
+            _padCell.Width = h ? HPadW : double.NaN;
+        }
+
+        private void StyleSep(Border sep, bool h)
+        {
+            if (sep == null) return;
+            sep.Height = h ? double.NaN : 1;
+            sep.Width = h ? 1 : double.NaN;
+            sep.Margin = h ? new Thickness(3, 10, 3, 10) : new Thickness(10, 3, 10, 3);
+        }
+
+        // v2.9.13 贴边行为：hide=吸附即半隐藏（默认，现状）；pin=仅吸附保持完整显示
+        private bool DockAutoHide()
+        {
+            string s;
+            try { s = _cfg["dock_action"]; } catch { s = "hide"; }
+            return s != "pin";
         }
 
         private static readonly string PosFile = Path.Combine(SettingsData.ExeDir, "agent-hud.pos");
@@ -2505,6 +2653,10 @@ namespace AgentHud
         private readonly HashSet<string> _seenEventIds = new HashSet<string>();
         private Border _panel;
         private Grid _panelGrid;
+        // v2.9.13 双朝向：共享 cell 重排进竖栈或横 bar（元素复用，事件委托不重建）
+        private StackPanel _stackV, _stackH, _barH, _drawerStack;
+        private Grid _handleCell, _hdrCell;
+        private Border _padCell;
         private string _currentSkin = "blur-dark";
         private Brush _sepBrush;
         private Border _handlePill;
@@ -2569,6 +2721,7 @@ namespace AgentHud
                 VerticalAlignment = VerticalAlignment.Top,   // 抽屉收起时面板贴顶，底部保持透明
             };
             StackPanel stack = new StackPanel();
+            _stackV = stack;
             Grid panelGrid = new Grid();          // gloss 垫底，stack 在上
             _panel.Child = panelGrid;
             panelGrid.Children.Add(stack);
@@ -2580,6 +2733,7 @@ namespace AgentHud
 
             // ---- Home Indicator 把手：拖动 HUD（放 HDR 钮上方，iPhone 主屏指示条样式） ----
             Grid handle = new Grid { Height = 16, Background = Brushes.Transparent, Cursor = Cursors.SizeAll };
+            _handleCell = handle;
             _handlePill = new Border
             {
                 Width = 46, Height = 5,
@@ -2612,6 +2766,7 @@ namespace AgentHud
 
             // ---- HDR 圆钮（美化 + 双击确认防误触） ----
             Grid hdrArea = new Grid { Height = 76, Background = Brushes.Transparent, Cursor = Cursors.Hand };
+            _hdrCell = hdrArea;
             _hdrScale = new ScaleTransform(1, 1);
             _hdrFill = new SolidColorBrush(Color.FromArgb(0xFF, 0x35, 0x35, 0x35));
             _hdrGlow = new DropShadowEffect { BlurRadius = 16, ShadowDepth = 0, Opacity = 0.25 };
@@ -2729,7 +2884,15 @@ namespace AgentHud
             stack.Children.Add(_zcDrawer);
 
             Border pad = new Border { Height = 6, IsHitTestVisible = false };
+            _padCell = pad;
             stack.Children.Add(pad);
+
+            // v2.9.13 横向容器（初始不挂树，ArrangeOrientation 按朝向布置共享 cell）
+            _barH = new StackPanel { Orientation = Orientation.Horizontal };
+            _drawerStack = new StackPanel { Orientation = Orientation.Vertical };
+            _stackH = new StackPanel();
+            // 横向抽屉内容居中（竖向抽屉宽=窗宽，居中无副作用）
+            _dsDrawerContent.HorizontalAlignment = HorizontalAlignment.Center;
 
             _pinTimerDs = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
             _pinTimerDs.Tick += delegate
@@ -2785,7 +2948,7 @@ namespace AgentHud
             _tuckTimer.Tick += delegate
             {
                 _tuckTimer.Stop();
-                if (_dock.Length > 0 && !_tucked && !_root.IsMouseOver) SetDockState(_dock, true, true);
+                if (_dock.Length > 0 && !_tucked && !_root.IsMouseOver && DockAutoHide()) SetDockState(_dock, true, true);   // 仅吸附模式不回缩
             };
 
             _dataTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
@@ -3396,7 +3559,9 @@ namespace AgentHud
             if (_zcRow != null) _zcRow.Visibility = zc ? Visibility.Visible : Visibility.Collapsed;
             if (_sepMid != null) _sepMid.Visibility = (ds && zc) ? Visibility.Visible : Visibility.Collapsed;
             if (_sepTop != null) _sepTop.Visibility = ds ? Visibility.Visible : Visibility.Collapsed;
+            EnsureLayout();   // v2.9.13：布局方向预览即时生效
             UpdateHeightNow();
+            if (_dock.Length > 0 && !_fsHidden) SetDockState(_dock, DockAutoHide(), true);   // 贴边行为预览即时生效（隐藏/展开）
             if (_ds != null || _zc != null) ApplyData();   // 分档变了立刻用现有数据重画
         }
 
@@ -3412,6 +3577,7 @@ namespace AgentHud
             if (_zcRow != null) _zcRow.Visibility = SettingsData.Flag(_cfg, "show_zc") ? Visibility.Visible : Visibility.Collapsed;
             if (_sepMid != null) _sepMid.Visibility = (_dsRow != null && _dsRow.Visibility == Visibility.Visible && _zcRow != null && _zcRow.Visibility == Visibility.Visible) ? Visibility.Visible : Visibility.Collapsed;
             if (_sepTop != null) _sepTop.Visibility = (_dsRow != null && _dsRow.Visibility == Visibility.Visible && SettingsData.Flag(_cfg, "show_ds")) ? Visibility.Visible : Visibility.Collapsed;
+            EnsureLayout();
             UpdateHeightNow();
             RefreshData();
         }
@@ -4075,6 +4241,7 @@ namespace AgentHud
         private void SetDockState(string edge, bool hidden, bool animate)
         {
             _dock = edge; _tucked = hidden;
+            EnsureLayout();   // v2.9.13：auto 朝向/横向抽屉侧随贴边变化，先重建再定位（GetDockPos 读新宽高）
             if (hidden) CloseDrawersAndUnpin();   // 缩回时收起抽屉
             Point p = GetDockPos(edge, hidden);
             MoveWidgetTo(p.X, p.Y, animate);
@@ -4107,7 +4274,7 @@ namespace AgentHud
             if (T - wa.Top < SnapPx && T - wa.Top < bestV) { best = "top"; bestV = T - wa.Top; }
             if (wa.Bottom - (T + h) < SnapPx && wa.Bottom - (T + h) < bestV) { best = "bottom"; bestV = wa.Bottom - (T + h); }
             if (best.Length == 0) { _dock = ""; _tucked = false; }
-            else SetDockState(best, true, animate);
+            else SetDockState(best, DockAutoHide(), animate);   // v2.9.13：仅吸附模式贴边不半隐藏
         }
     }
 }
