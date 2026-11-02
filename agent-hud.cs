@@ -49,8 +49,8 @@ using Ellipse = System.Windows.Shapes.Ellipse;
 [assembly: AssemblyDescription("Agent HUD：HDR 开关 + DeepSeek 余额 + GLM 订阅用量悬浮侧边栏")]
 [assembly: AssemblyCompany("Agent HUD Project")]
 [assembly: AssemblyCopyright("Copyright (C) 2026 Agent HUD Project")]
-[assembly: AssemblyVersion("2.9.14.0")]
-[assembly: AssemblyFileVersion("2.9.14.0")]
+[assembly: AssemblyVersion("2.9.15.0")]
+[assembly: AssemblyFileVersion("2.9.15.0")]
 
 namespace AgentHud
 {
@@ -2468,13 +2468,13 @@ namespace AgentHud
         private const double ZcDrawerH = 54;   // ZCode 抽屉展开高（34 圈+标签）
         private const double ClosedH = 268;    // 抽屉全收起（双角色）+ 把手行 的窗口高度
         private const double RowH = 76;        // 单个角色行高（隐藏角色时从 ClosedH 扣除）
-        // v2.9.13 横向条几何：把手行16+HDR76+pad6+双角色行104×2+双分隔7×2（把手固定横向顶条，与竖向同款）
-        private const double HBarH = 98;       // 横向收起高（把手行16+行76+pad6）
+        // v2.9.15 横向条几何：把手行16+行76+底垫16（上下对称）；抽屉统一向右弹出（面板宽恒定）
+        private const double HBarH = 108;      // 横向收起高（把手行16+行76+底垫16）
         private const double HRowW = 104;      // 横向角色行单元宽（与竖向窗宽一致，内部布局零改动）
         private const double HHdrW = 76, HPadW = 6;
+        private const double DsDrawerW = 112, ZcDrawerW = 112;   // 横向抽屉右弹面板宽
         private double _windowH = ClosedH;     // 当前窗口高度基准值（动画起点/终点计算用）
         private string _orient = "v";          // 当前已应用的朝向：v=竖向 h=横向
-        private bool _hBarBottom;              // 横向时抽屉区是否在 bar 上方（贴底边=true）
 
         // 当前配置下的收起高度（隐藏角色会减行高；分隔线 7px 在行内已含，单角色减 1 条 mid sep≈7）
         // v2.9.13：横向时收起高恒为 HBarH（行隐藏减宽不减高，见 ClosedWidthNow）
@@ -2497,16 +2497,21 @@ namespace AgentHud
             return HHdrW + HPadW + rows * HRowW + (rows > 1 ? 14 : rows == 1 ? 7 : 0);
         }
 
-        // v2.9.13：宽高双向随开合伸缩（纵向高变、横向高变+宽随行数）；
-        // 两朝向都必须显式写 Width——切回竖向时残留的横向宽不重置就是"UI 变宽"bug
+        // v2.9.13：宽高随开合伸缩（纵向高变；横向高恒定、宽=行宽+右弹抽屉）。
+        // 两朝向都必须显式写两轴——切回竖向时残留的横向宽不重置就是"UI 变宽"bug。
+        // 贴底补偿方向：底边固定 Top_new = Top - (H_new - H_old)，与 AnimateDrawer 动画同向（v2.9.15 修反向）
         private void UpdateHeightNow()
         {
-            double drawers = (_openDs ? DsDrawerH : 0) + (_openZc ? ZcDrawerH : 0);
-            double targetH = ClosedHeightNow() + drawers;
-            if (_dock == "bottom" && Math.Abs(targetH - _windowH) > 0.5) Top += targetH - _windowH;
+            bool h = _orient == "h";
+            double drawersH = (_openDs ? DsDrawerH : 0) + (_openZc ? ZcDrawerH : 0);
+            double drawersW = (_openDs ? DsDrawerW : 0) + (_openZc ? ZcDrawerW : 0);
+            double targetH = h ? HBarH : ClosedHeightNow() + drawersH;
+            double targetW = h ? ClosedWidthNow() + drawersW : 104;
+            if (_dock == "bottom" && !h && Math.Abs(targetH - _windowH) > 0.5) Top -= targetH - _windowH;
             BeginAnimation(Window.HeightProperty, null);
+            BeginAnimation(Window.WidthProperty, null);
             Height = targetH;
-            Width = _orient == "h" ? ClosedWidthNow() : 104;
+            Width = targetW;
             _windowH = targetH;
         }
 
@@ -2526,16 +2531,32 @@ namespace AgentHud
             return "v";
         }
 
-        // dock/设置变化后调用：朝向或横向抽屉侧变了才重建（重建有视觉成本，幂等跳过）
+        // dock/设置变化后调用：朝向变了才重建（重建有视觉成本，幂等跳过）
         private void EnsureLayout()
         {
             string want = EffectiveOrientation();
-            bool bottom = _dock == "bottom";
-            if (want == _orient && (!_orient.Equals("h") || bottom == _hBarBottom)) return;
+            if (want == _orient) return;
             _orient = want;
-            _hBarBottom = bottom;
             ArrangeOrientation();
+            ResetDrawerGeometry();
             UpdateHeightNow();
+        }
+
+        // 朝向切换后重置抽屉格几何（纵向动高、横向动宽；切换瞬间清掉对方轴的动画残留）
+        private void ResetDrawerGeometry()
+        {
+            bool h = _orient == "h";
+            Grid[] drawers = new Grid[] { _dsDrawer, _zcDrawer };
+            bool[] opens = new bool[] { _openDs, _openZc };
+            double[] wT = new double[] { DsDrawerW, ZcDrawerW };
+            double[] hT = new double[] { DsDrawerH, ZcDrawerH };
+            for (int i = 0; i < 2; i++)
+            {
+                drawers[i].BeginAnimation(FrameworkElement.WidthProperty, null);
+                drawers[i].BeginAnimation(FrameworkElement.HeightProperty, null);
+                drawers[i].Width = h ? (opens[i] ? wT[i] : 0) : double.NaN;
+                drawers[i].Height = h ? double.NaN : (opens[i] ? hT[i] : 0);
+            }
         }
 
         // 共享 cell 重排：元素只建一次，换朝向仅改父容器与几何属性（事件委托全部保留）
@@ -2544,7 +2565,6 @@ namespace AgentHud
             bool h = _orient == "h";
             _stackV.Children.Clear();
             _barH.Children.Clear();
-            _drawerStack.Children.Clear();
             _stackH.Children.Clear();
             _panelGrid.Children.Clear();
             StyleCells(h);
@@ -2563,17 +2583,19 @@ namespace AgentHud
             }
             else
             {
+                // 行内：HDR|分隔|DS|分隔|ZC|pad|抽屉面板（抽屉统一向右弹出，v2.9.15）
                 _barH.Children.Add(_hdrCell);
                 _barH.Children.Add(_sepTop);
                 _barH.Children.Add(_dsRow);
                 _barH.Children.Add(_sepMid);
                 _barH.Children.Add(_zcRow);
                 _barH.Children.Add(_padCell);
-                _drawerStack.Children.Add(_dsDrawer);
-                _drawerStack.Children.Add(_zcDrawer);
-                // 把手=横条顶行（用户指定的横排形态）；贴底边时抽屉区在把手行之上（朝屏幕内侧展开）
-                if (_hBarBottom) { _stackH.Children.Add(_drawerStack); _stackH.Children.Add(_handleCell); _stackH.Children.Add(_barH); }
-                else { _stackH.Children.Add(_handleCell); _stackH.Children.Add(_barH); _stackH.Children.Add(_drawerStack); }
+                _barH.Children.Add(_dsDrawer);
+                _barH.Children.Add(_zcDrawer);
+                // 列：把手行（顶）+ 行 + 底垫（与把手行对称，v2.9.14 用户反馈）
+                _stackH.Children.Add(_handleCell);
+                _stackH.Children.Add(_barH);
+                _stackH.Children.Add(_padCell2);
                 _panelGrid.Children.Add(_stackH);
             }
         }
@@ -2597,9 +2619,12 @@ namespace AgentHud
             _zcRow.Width = h ? HRowW : double.NaN;
             _dsRow.Height = h ? double.NaN : 76;
             _zcRow.Height = h ? double.NaN : 76;
-            // pad：竖=底部 6 高；横=右端 6 宽
+            // pad：竖=底部 6 高；横=行右端 6 宽（底部 16 对称垫由 _padCell2 承担）
             _padCell.Height = h ? double.NaN : 6;
             _padCell.Width = h ? HPadW : double.NaN;
+            // 抽屉内容：横向面板垂直居中；纵向保持顶部（随抽屉高度展开）
+            _dsDrawerContent.VerticalAlignment = h ? VerticalAlignment.Center : VerticalAlignment.Top;
+            _zcDrawerContent.VerticalAlignment = h ? VerticalAlignment.Center : VerticalAlignment.Top;
         }
 
         private void StyleSep(Border sep, bool h)
@@ -2654,9 +2679,9 @@ namespace AgentHud
         private Border _panel;
         private Grid _panelGrid;
         // v2.9.13 双朝向：共享 cell 重排进竖栈或横 bar（元素复用，事件委托不重建）
-        private StackPanel _stackV, _stackH, _barH, _drawerStack;
+        private StackPanel _stackV, _stackH, _barH;
         private Grid _handleCell, _hdrCell;
-        private Border _padCell;
+        private Border _padCell, _padCell2;
         private string _currentSkin = "blur-dark";
         private Brush _sepBrush;
         private Border _handlePill;
@@ -2889,8 +2914,8 @@ namespace AgentHud
 
             // v2.9.13 横向容器（初始不挂树，ArrangeOrientation 按朝向布置共享 cell）
             _barH = new StackPanel { Orientation = Orientation.Horizontal };
-            _drawerStack = new StackPanel { Orientation = Orientation.Vertical };
             _stackH = new StackPanel();
+            _padCell2 = new Border { Height = 16, IsHitTestVisible = false };
             // 横向抽屉内容居中（竖向抽屉宽=窗宽，居中无副作用）
             _dsDrawerContent.HorizontalAlignment = HorizontalAlignment.Center;
 
@@ -3401,7 +3426,7 @@ namespace AgentHud
             else if (dirSetting == "left") toRight = false;
             else if (_dock == "left") toRight = true;
             else if (_dock == "right") toRight = false;
-            else if (_dock == "top" || _dock == "bottom") toRight = wx < wa.Left + wa.Width / 2;
+            else if (_dock == "top" || _dock == "bottom") toRight = true;   // v2.9.15：横向 HUD 气泡统一向右弹
             else toRight = wx < wa.Left + wa.Width / 2;
             double bubbleW = 288;
             double px = toRight ? Left + Width + 10 : Left - bubbleW - 10;
@@ -3762,10 +3787,24 @@ namespace AgentHud
             {
             Duration dur = new Duration(TimeSpan.FromMilliseconds(180));
             CubicEase ease = new CubicEase(); ease.EasingMode = EasingMode.EaseOut;
+            if (_orient == "h")
+            {
+                // v2.9.15 横向：抽屉作为右侧面板向右弹出——动画抽屉格宽（高度动画清掉）
+                DoubleAnimation adw = new DoubleAnimation(open ? (sec == "ds" ? DsDrawerW : ZcDrawerW) : 0, dur);
+                adw.EasingFunction = ease;
+                g.BeginAnimation(FrameworkElement.HeightProperty, null);
+                g.Height = double.NaN;
+                g.BeginAnimation(FrameworkElement.WidthProperty, adw);
+            }
+            else
+            {
             // 从当前值出发（DoubleAnimation 只给 To），中断时无跳变
             DoubleAnimation ah = new DoubleAnimation(open ? target : 0, dur);
             ah.EasingFunction = ease;
             g.BeginAnimation(FrameworkElement.HeightProperty, ah);
+            g.BeginAnimation(FrameworkElement.WidthProperty, null);
+            g.Width = double.NaN;
+            }
             DoubleAnimation ao = new DoubleAnimation(open ? 1 : 0, new Duration(TimeSpan.FromMilliseconds(open ? 200 : 110)));
             content.BeginAnimation(UIElement.OpacityProperty, ao);
             if (open)
@@ -3780,16 +3819,28 @@ namespace AgentHud
             if (sec == "ds") _openDs = open; else _openZc = open;
             if (!open && _hoverOpened == sec) _hoverOpened = null;
 
-            // 窗口高度跟随抽屉伸缩（两个抽屉独立求和，底部不留透明空底）
-            double newH = ClosedHeightNow() + (_openDs ? DsDrawerH : 0) + (_openZc ? ZcDrawerH : 0);
             Duration wdur = new Duration(TimeSpan.FromMilliseconds(180));
             CubicEase wease = new CubicEase(); wease.EasingMode = EasingMode.EaseOut;
+            if (_orient == "h")
+            {
+                // 横向：窗口宽跟随右伸，高恒定
+                double newW = ClosedWidthNow() + (_openDs ? DsDrawerW : 0) + (_openZc ? ZcDrawerW : 0);
+                DoubleAnimation aww = new DoubleAnimation(newW, wdur);
+                aww.EasingFunction = wease;
+                BeginAnimation(Window.WidthProperty, aww);
+                BeginAnimation(Window.HeightProperty, null);
+                Height = HBarH;
+                _windowH = HBarH;
+                return;
+            }
+            // 纵向：窗口高度跟随抽屉伸缩（两个抽屉独立求和，底部不留透明空底）
+            double newH = ClosedHeightNow() + (_openDs ? DsDrawerH : 0) + (_openZc ? ZcDrawerH : 0);
             DoubleAnimation aw = new DoubleAnimation(newH, wdur);
             aw.EasingFunction = wease;
             BeginAnimation(Window.HeightProperty, aw);
             if (_dock == "bottom" && Math.Abs(newH - _windowH) > 0.5)
             {
-                // 贴底时窗口向下长会压到任务栏：Top 同步上移
+                // 贴底时窗口高度变化底边固定：Top 反向补偿（与 UpdateHeightNow 同向）
                 DoubleAnimation at = new DoubleAnimation(Top - (newH - _windowH), wdur);
                 at.EasingFunction = wease;
                 BeginAnimation(Window.TopProperty, at);
