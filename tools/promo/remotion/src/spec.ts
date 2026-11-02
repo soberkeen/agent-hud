@@ -1,55 +1,55 @@
 // 时间轴 —— @60fps;本文件由 tools/gen_timings.py 从配音实测时长自动生成,勿手改
 // 重排流程:换配音 -> 跑 gen_nar.py -> 跑 gen_timings.py -> 重渲
 export const FPS = 60;
-export const DUR = 4865; // 81.08s
+export const DUR = 5905; // 98.42s
 
 // HUD 尺寸:DIP × UIK(2.4) = 设计 px —— 与 agent-hud.cs 实测一致
 export const UIK = 2.4;
 export const d = (v: number) => v * UIK;
 
 // ---- 口播轴(帧) ----
-export const NAR01 = { from: 30, end: 266 }; // 屏幕边上这块地方，你平时是不是完全没用过？
-export const NAR02 = { from: 291, end: 417 }; // Agent HUD 就是干这个的。
-export const NAR03 = { from: 443, end: 946 }; // HDR 开关、DeepSeek 余额、GLM 额度，天天要看的东西，全在这条边上。
-export const NAR04 = { from: 971, end: 1243 }; // HDR 得双击才切，第一下只是确认，不怕手滑。
-export const NAR05 = { from: 1269, end: 1501 }; // 开完 HDR，画面差别一眼就能看出来。
-export const NAR06 = { from: 1526, end: 1898 }; // 鼠标放大肥鱼上，余额直接弹出来；放噶漏姆上，两个额度圈就展开。
-export const NAR07 = { from: 1923, end: 2325 }; // 单击能把抽屉钉住不动，双击直接开 ZCode 或者 DSH。
-export const NAR08 = { from: 2350, end: 2697 }; // 最实用的是这个：ZCode 跑完活，角色头顶冒个气泡告诉你。
-export const NAR09 = { from: 2723, end: 3072 }; // 需要授权就在气泡上点个允许，结果写回 hook，任务接着跑。
-export const NAR10 = { from: 3097, end: 3519 }; // 额度剩多少看表情就知道：平时淡定，黄了发慌，红了直接痴呆。
-export const NAR11 = { from: 3544, end: 3895 }; // 安装没难度，向导点完就装好，hooks 它自己接。
-export const NAR12 = { from: 3920, end: 4202 }; // 它还留了命令行接口，一行 -notify 就能把消息发到桌面上。
-export const NAR13 = { from: 4227, end: 4733 }; // 开源免费，就一个 exe。GitHub 搜 agent-hud，让 Agent 住进你桌面。
+export const NAR01 = { from: 30, end: 548 }; // 下面为大家介绍一款桌面小工具，Agent HUD。它常驻屏幕边缘，把最常用的信息放在随手可见的位置。
+export const NAR02 = { from: 573, end: 897 }; // 它要解决的问题很简单：让重要信息随看随取，不用来回切换窗口。
+export const NAR03 = { from: 922, end: 1395 }; // 面板上有三块内容。最上面是 HDR 开关，下面分别是 DeepSeek 余额，和 GLM 的订阅额度。
+export const NAR04 = { from: 1421, end: 1860 }; // HDR 采用双击确认的设计。第一下进入确认状态，第二下才会真正切换，可以避免误触。
+export const NAR05 = { from: 1885, end: 2178 }; // 开启之后，画面的亮度和色彩会有明显提升，区别一目了然。
+export const NAR06 = { from: 2204, end: 2714 }; // 鼠标放到 DeepSeek 助手上，余额会自动展开；放到 GLM 助手上，五小时和本周两个额度圈同时展开。
+export const NAR07 = { from: 2739, end: 3132 }; // 单击可以把抽屉固定住，双击则直接启动对应的程序，也就是 ZCode 或者 DSH。
+export const NAR08 = { from: 3157, end: 3527 }; // 它还接入了 ZCode 的事件通知。任务完成时，角色头顶会弹出气泡来提醒你。
+export const NAR09 = { from: 3553, end: 4014 }; // 遇到权限请求，直接在气泡上点击允许，决策会写回 hook，任务继续执行，不用切换窗口。
+export const NAR10 = { from: 4039, end: 4508 }; // 额度的使用状态，也会通过角色表情来呈现。充足时平静，偏低时紧张，耗尽时发呆。
+export const NAR11 = { from: 4533, end: 5003 }; // 安装很简单，运行安装向导即可完成，ZCode 的 hooks 会自动配置好，程序支持开机自启和系统托盘。
+export const NAR12 = { from: 5029, end: 5334 }; // 它同时提供命令行接口，一条 notify 命令，就能把消息推送到桌面。
+export const NAR13 = { from: 5359, end: 5773 }; // Agent HUD 完全开源，单文件，零依赖。可以在 GitHub 搜索 agent-hud 下载使用。
 
 export const NARR = [
-  { key: 'nar01', from: 30, dur: 236, text: "屏幕边上这块地方，你平时是不是完全没用过？", sc: 0 },
-  { key: 'nar02', from: 291, dur: 126, text: "Agent HUD 就是干这个的。", sc: 0 },
-  { key: 'nar03', from: 443, dur: 503, text: "HDR 开关、DeepSeek 余额、GLM 额度，天天要看的东西，全在这条边上。", sc: 0 },
-  { key: 'nar04', from: 971, dur: 272, text: "HDR 得双击才切，第一下只是确认，不怕手滑。", sc: 0 },
-  { key: 'nar05', from: 1269, dur: 232, text: "开完 HDR，画面差别一眼就能看出来。", sc: 0 },
-  { key: 'nar06', from: 1526, dur: 372, text: "鼠标放大肥鱼上，余额直接弹出来；放噶漏姆上，两个额度圈就展开。", sc: 0 },
-  { key: 'nar07', from: 1923, dur: 402, text: "单击能把抽屉钉住不动，双击直接开 ZCode 或者 DSH。", sc: 0 },
-  { key: 'nar08', from: 2350, dur: 347, text: "最实用的是这个：ZCode 跑完活，角色头顶冒个气泡告诉你。", sc: 0 },
-  { key: 'nar09', from: 2723, dur: 349, text: "需要授权就在气泡上点个允许，结果写回 hook，任务接着跑。", sc: 0 },
-  { key: 'nar10', from: 3097, dur: 422, text: "额度剩多少看表情就知道：平时淡定，黄了发慌，红了直接痴呆。", sc: 0 },
-  { key: 'nar11', from: 3544, dur: 351, text: "安装没难度，向导点完就装好，hooks 它自己接。", sc: 0 },
-  { key: 'nar12', from: 3920, dur: 282, text: "它还留了命令行接口，一行 -notify 就能把消息发到桌面上。", sc: 0 },
-  { key: 'nar13', from: 4227, dur: 506, text: "开源免费，就一个 exe。GitHub 搜 agent-hud，让 Agent 住进你桌面。", sc: 0 },
+  { key: 'nar01', from: 30, dur: 518, text: "下面为大家介绍一款桌面小工具，Agent HUD。它常驻屏幕边缘，把最常用的信息放在随手可见的位置。", sc: 0 },
+  { key: 'nar02', from: 573, dur: 324, text: "它要解决的问题很简单：让重要信息随看随取，不用来回切换窗口。", sc: 0 },
+  { key: 'nar03', from: 922, dur: 473, text: "面板上有三块内容。最上面是 HDR 开关，下面分别是 DeepSeek 余额，和 GLM 的订阅额度。", sc: 0 },
+  { key: 'nar04', from: 1421, dur: 439, text: "HDR 采用双击确认的设计。第一下进入确认状态，第二下才会真正切换，可以避免误触。", sc: 0 },
+  { key: 'nar05', from: 1885, dur: 293, text: "开启之后，画面的亮度和色彩会有明显提升，区别一目了然。", sc: 0 },
+  { key: 'nar06', from: 2204, dur: 510, text: "鼠标放到 DeepSeek 助手上，余额会自动展开；放到 GLM 助手上，五小时和本周两个额度圈同时展开。", sc: 0 },
+  { key: 'nar07', from: 2739, dur: 393, text: "单击可以把抽屉固定住，双击则直接启动对应的程序，也就是 ZCode 或者 DSH。", sc: 0 },
+  { key: 'nar08', from: 3157, dur: 370, text: "它还接入了 ZCode 的事件通知。任务完成时，角色头顶会弹出气泡来提醒你。", sc: 0 },
+  { key: 'nar09', from: 3553, dur: 461, text: "遇到权限请求，直接在气泡上点击允许，决策会写回 hook，任务继续执行，不用切换窗口。", sc: 0 },
+  { key: 'nar10', from: 4039, dur: 469, text: "额度的使用状态，也会通过角色表情来呈现。充足时平静，偏低时紧张，耗尽时发呆。", sc: 0 },
+  { key: 'nar11', from: 4533, dur: 470, text: "安装很简单，运行安装向导即可完成，ZCode 的 hooks 会自动配置好，程序支持开机自启和系统托盘。", sc: 0 },
+  { key: 'nar12', from: 5029, dur: 305, text: "它同时提供命令行接口，一条 notify 命令，就能把消息推送到桌面。", sc: 0 },
+  { key: 'nar13', from: 5359, dur: 414, text: "Agent HUD 完全开源，单文件，零依赖。可以在 GitHub 搜索 agent-hud 下载使用。", sc: 0 },
 ] as const;
 export const narF = (key: string) => (NARR as readonly { key: string; from: number }[]).find((n) => n.key === key)!.from;
 export const narD = (key: string) => (NARR as readonly { key: string; dur: number }[]).find((n) => n.key === key)!.dur;
 
 // ---- 场景(帧) ----
 export const SHOTS = {
-  s1: { from: 0, dur: 398 }, // 聚光+滑入锁定
-  s2: { from: 398, dur: 543 }, // 归位+标注+吸附
-  s3: { from: 941, dur: 552 }, // HDR 双击
-  s4: { from: 1493, dur: 835 }, // 抽屉
-  s5: { from: 2328, dur: 733 }, // 气泡
-  s6: { from: 3061, dur: 471 }, // 三态
-  s7: { from: 3532, dur: 678 }, // 使用+终端
-  s8: { from: 4210, dur: 655 }, // 合影
+  s1: { from: 0, dur: 877 }, // 聚光+滑入锁定
+  s2: { from: 877, dur: 530 }, // 归位+标注+吸附
+  s3: { from: 1407, dur: 763 }, // HDR 双击
+  s4: { from: 2170, dur: 965 }, // 抽屉
+  s5: { from: 3135, dur: 868 }, // 气泡
+  s6: { from: 4003, dur: 518 }, // 三态
+  s7: { from: 4521, dur: 821 }, // 使用+终端
+  s8: { from: 5342, dur: 563 }, // 合影
 } as const;
 
 // ---- 场景内节拍(相对 shot.from,由口播起点推导) ----
@@ -59,7 +59,7 @@ const nRel = (key: string, shotFrom: number, plus = 0) => rel(shotFrom, narF(key
 export const S1 = {
   SL0: 313, SL1: 370, LOCK: 370,
   rise0: 424, lap1: [382, 396], lap2: [402, 422],
-  titleT0: nRel('nar02', 0, 33), titleOut: [379, 396],
+  titleT0: nRel('nar02', 0, 33), titleOut: [858, 875],
 };
 export const S2 = {
   dock: [0, 37],
@@ -72,7 +72,7 @@ export const S3 = {
   kIn: [9, 39],
   ARM: nRel('nar04', SHOTS.s3.from, 135),
   ON: nRel('nar04', SHOTS.s3.from, 219),
-  washIn: nRel('nar05', SHOTS.s3.from, 21), washOut: [529, 549],
+  washIn: nRel('nar05', SHOTS.s3.from, 21), washOut: [740, 760],
   chip: nRel('nar05', SHOTS.s3.from, 42),
 };
 export const S4 = {
@@ -80,14 +80,14 @@ export const S4 = {
   ZC0: nRel('nar06', SHOTS.s4.from, 250),
   cur1: [30, 63], cur2: [250, 275],
   chips: [nRel('nar07', SHOTS.s4.from, 40), nRel('nar07', SHOTS.s4.from, 90)],
-  close: [775, 805],
+  close: [905, 935],
 };
 export const S5 = {
   B1: nRel('nar08', SHOTS.s5.from, 70),
   B2: nRel('nar09', SHOTS.s5.from, 30),
   B1_CLOSE: nRel('nar09', SHOTS.s5.from, 10),
   CLICK: nRel('nar09', SHOTS.s5.from, 165),
-  cursorIn: [491, 554],
+  cursorIn: [514, 577],
 };
 export const S6 = {
   tuck: [0, 22],

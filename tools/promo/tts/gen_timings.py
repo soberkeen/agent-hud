@@ -6,8 +6,8 @@
 import json, os, subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-NAR_DIR = os.path.join(HERE, '..', '..', 'HDR 开关', 'tools', 'promo', 'remotion', 'public', 'audio', 'nar')
-SPEC_OUT = os.path.join(HERE, '..', '..', 'HDR 开关', 'tools', 'promo', 'remotion', 'src', 'spec.ts')
+NAR_DIR = os.path.join(HERE, '..', 'remotion', 'public', 'audio', 'nar')
+SPEC_OUT = os.path.join(HERE, '..', 'remotion', 'src', 'spec.ts')
 FPS = 60
 LEAD = 0.50
 GAP = 0.42
