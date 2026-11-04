@@ -28,3 +28,5 @@ tools/roundtrip-test.py
 promo/AgentHUD-promo.mp4
 tools/promo/build/
 tools/promo/probe/
+tools/promo/remotion/build/
+tools/promo/review-v4/
