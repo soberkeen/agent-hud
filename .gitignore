@@ -30,3 +30,9 @@ tools/promo/build/
 tools/promo/probe/
 tools/promo/remotion/build/
 tools/promo/review-v4/
+
+# 宣传片制作（本地留存，不入库）
+promo/
+tools/promo/
+docs/宣传文案.md
+docs/视频简介.md
